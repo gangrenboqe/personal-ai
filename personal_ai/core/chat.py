@@ -1,0 +1,105 @@
+"""ChatService：一次对话的完整流程。
+
+职责边界：
+- 它只做编排，不关心 HTTP、不关心 UI。
+- Provider 由注册表创建，可替换。
+- 每一条消息都落库，并保存真实的 provider / model / chain。
+"""
+
+from __future__ import annotations
+
+from ..config import Config
+from ..providers import ChatMessage, ChatResponse, available, create
+from ..storage import add_message, create_session, init_db, list_messages, list_sessions
+
+
+class ChatService:
+    def __init__(self, config: Config | None = None) -> None:
+        self.config = config or Config.from_env()
+        init_db(self.config.db_path)
+        self.provider = create(self.config.provider, self.config)
+
+    # ---------- 会话 ----------
+
+    def new_session(self, title: str = "") -> str:
+        return create_session(self.config.db_path, title=title, provider=self.provider.name)
+
+    def sessions(self) -> list[dict]:
+        return list_sessions(self.config.db_path)
+
+    def history(self, session_id: str) -> list[dict]:
+        return list_messages(self.config.db_path, session_id)
+
+    # ---------- 对话 ----------
+
+    def send(self, session_id: str, text: str) -> dict:
+        """发送一条消息，落库，调用模型，把回答也落库。"""
+        if not session_id:
+            session_id = self.new_session(title=text[:20])
+
+        add_message(self.config.db_path, session_id, "user", text)
+
+        messages = self._build_messages(session_id)
+        resp: ChatResponse = self.provider.complete(messages)
+
+        add_message(
+            self.config.db_path,
+            session_id,
+            "assistant",
+            resp.content,
+            provider=resp.provider,
+            model=resp.model,
+            chain=resp.chain_text(),
+            ok=resp.ok,
+        )
+
+        return {
+            "session_id": session_id,
+            "content": resp.content,
+            "ok": resp.ok,
+            "error": resp.error,
+            "provider": resp.provider,
+            "model": resp.model,
+            "chain": resp.chain_text(),
+            "is_mock": resp.provider == "mock",
+        }
+
+    def prepare(self, session_id: str, text: str) -> str:
+        """流式专用：先落库用户消息，返回可用的 session_id。"""
+        if not session_id:
+            session_id = self.new_session(title=text[:20])
+        add_message(self.config.db_path, session_id, "user", text)
+        return session_id
+
+    def context_for(self, session_id: str) -> list[ChatMessage]:
+        return self._build_messages(session_id)
+
+    def finish(self, session_id: str, content: str, chain: str = "", model: str = "", ok: bool = True) -> None:
+        """流式专用：把完整回答一次性落库（流已经结束，不再需要逐块存）。"""
+        add_message(
+            self.config.db_path,
+            session_id,
+            "assistant",
+            content,
+            provider=self.provider.name,
+            model=model or self.provider.default_model(),
+            chain=chain or (" → ".join(self.provider.default_chain() + [self.provider.default_model()])),
+            ok=ok,
+        )
+
+    def _build_messages(self, session_id: str) -> list[ChatMessage]:
+        out = [ChatMessage(role="system", content=self.config.system_prompt)]
+        for m in list_messages(self.config.db_path, session_id, limit=50):
+            if m["role"] in ("user", "assistant"):
+                out.append(ChatMessage(role=m["role"], content=m["content"]))
+        return out
+
+    # ---------- 元信息 ----------
+
+    def status(self) -> dict:
+        return {
+            "version": "0.1.0-a1",
+            "provider": self.provider.describe(),
+            "providers_available": available(),
+            "config": self.config.describe(),
+        }

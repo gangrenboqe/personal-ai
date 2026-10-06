@@ -1,0 +1,90 @@
+"""一键启动 Personal AI，并自动接入本机已有的 OmniRoute 网关。
+
+用法：
+    python scripts/start_local.py
+    # 然后浏览器打开 http://127.0.0.1:8787
+
+它做三件事：
+1. 检查本机 OmniRoute 是否在运行（不在就提示你先 `omniroute serve`）
+2. 从 OmniRoute 的本地库里**只读**取出已有的网关 Key（不新建、不改动任何配置）
+3. 用这个 Key 启动 Personal AI，Key 只存在于进程内，不写入任何文件
+
+如果只想离线看看界面（不调用真实模型）：
+    python -m personal_ai --serve
+"""
+
+from __future__ import annotations
+
+import socket
+import sqlite3
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from personal_ai.config import Config  # noqa: E402
+from personal_ai.server import run_server  # noqa: E402
+
+OMNI_PORT = 20128
+OMNI_DB = Path.home() / ".omniroute" / "storage.sqlite"
+MODEL = "deepseek-ai/DeepSeek-V3.2"
+
+
+def gateway_up(host: str = "127.0.0.1", port: int = OMNI_PORT, timeout: float = 1.5) -> bool:
+    s = socket.socket()
+    s.settimeout(timeout)
+    try:
+        s.connect((host, port))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def gateway_key() -> str | None:
+    """只读方式取本机 OmniRoute 已有的、未吊销的网关 Key。"""
+    if not OMNI_DB.exists():
+        return None
+    con = sqlite3.connect(f"file:{OMNI_DB}?mode=ro", uri=True)
+    try:
+        row = con.execute(
+            "SELECT key FROM api_keys WHERE revoked_at IS NULL LIMIT 1"
+        ).fetchone()
+    finally:
+        con.close()
+    return row[0] if row else None
+
+
+def main() -> int:
+    if not gateway_up():
+        print("=" * 60)
+        print(f"OmniRoute 网关没有运行（端口 {OMNI_PORT} 未监听）。")
+        print("先启动它：")
+        print("    omniroute serve")
+        print("然后再运行本脚本。")
+        print()
+        print("如果只想离线看界面，不调用真实模型：")
+        print("    python -m personal_ai --serve")
+        print("=" * 60)
+        return 1
+
+    key = gateway_key()
+    if not key:
+        print("没找到可用的网关 Key。请先在 OmniRoute 面板里创建一个。")
+        return 1
+
+    cfg = Config(
+        provider="openai_compat",
+        base_url=f"http://127.0.0.1:{OMNI_PORT}/v1",
+        api_key=key,
+        model=MODEL,
+        port=8787,
+    )
+    run_server(cfg)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
