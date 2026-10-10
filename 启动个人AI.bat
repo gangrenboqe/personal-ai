@@ -49,7 +49,6 @@ echo  [2/3] 启动 Personal AI ...
 set "PY=C:\Users\Administrator\.workbuddy\binaries\python\versions\3.13.12\python.exe"
 if not exist "%PY%" set "PY=python"
 
-start "" /min cmd /c "timeout /t 6 /nobreak >nul & start http://127.0.0.1:8787"
 
 echo  [3/3] 服务运行中: http://127.0.0.1:8787
 echo        要停止就关掉这个窗口, 或按 Ctrl+C.

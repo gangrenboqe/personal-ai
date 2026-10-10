@@ -57,6 +57,40 @@ def gateway_key() -> str | None:
     return row[0] if row else None
 
 
+def wait_port_open(host: str, port: int, timeout: float = 1.0) -> bool:
+    """真正的「服务就绪」判断：端口能被连上。
+
+    以前的做法是在 .bat 里 `timeout /t 6` 固定等 6 秒再开浏览器——那是猜的。
+    这里改成轮询真实端口，快了就早开，慢了也不开个空白页给你。
+    """
+    return gateway_up(host, port, timeout)
+
+
+def open_browser_when_ready(port: int = 8787) -> None:
+    """后台等到服务真的起来，再自动打开浏览器（只开一次）。
+
+    为什么挪到这里做：以前是 .bat 里起一个最小化 cmd 窗口 `start /min` 去延时开浏览器，
+    那个窗口会在几秒后自己消失 —— 看起来就像"程序闪一下就没了"，非常容易误判为崩溃。
+    """
+    import threading
+    import time
+    import webbrowser
+
+    def _run() -> None:
+        for _ in range(120):  # 最多等 120 秒
+            time.sleep(0.5)
+            if wait_port_open("127.0.0.1", port, timeout=0.5):
+                try:
+                    webbrowser.open(f"http://127.0.0.1:{port}")
+                    print("[浏览器] 已自动打开 http://127.0.0.1:%d" % port)
+                except Exception as e:
+                    print("[浏览器] 自动打开失败（%s），请手动访问 http://127.0.0.1:%d" % (e, port))
+                return
+        print("[浏览器] 等待超时，请手动访问 http://127.0.0.1:%d" % port)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
 def warm_up_async(cfg: Config) -> None:
     """后台预热一次真实调用。
 
@@ -110,6 +144,7 @@ def main() -> int:
         model=MODEL,
         port=8787,
     )
+    open_browser_when_ready(8787)
     if "--no-warmup" in sys.argv:
         print("[预热] 已按 --no-warmup 跳过 —— 第一句提问会慢（约 10~12 秒）")
     else:
