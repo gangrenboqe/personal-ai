@@ -1,5 +1,7 @@
 # Personal AI
 
+> English overview: [README_EN.md](README_EN.md) · 中文完整版见下。
+
 > 我的统一 AI 入口与个人 AI 数据层。
 > History、Memory、Task、项目上下文**属于我本人**，不属于任何一家模型；
 > Model / Agent / Provider **三层都可以替换**。

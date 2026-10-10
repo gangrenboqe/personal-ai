@@ -497,7 +497,11 @@
         if (obj.done) {
           backend.sessionId = obj.session_id || sid;
           ui.chatChain.textContent = obj.chain || "—";
-          bubble = null;
+          if (bubble) {
+            bubble.classList.remove("streaming");
+            bubble.setMeta(obj.ok === false ? "生成失败" : (obj.model ? "完成 · " + obj.model : "完成"));
+            bubble = null;
+          }
           continue;
         }
         if (obj.delta) {
@@ -525,6 +529,9 @@
     bubble.append = function (text) {
       bubble.textContent += text;
       ui.chatLog.scrollTop = ui.chatLog.scrollHeight;
+    };
+    bubble.setMeta = function (text) {
+      meta.textContent = text;
     };
     return bubble;
   }
