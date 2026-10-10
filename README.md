@@ -50,8 +50,18 @@ Key 只存在于进程内，不写入任何文件。
 ```bash
 python -m personal_ai --status                 # 查看当前 provider 与配置
 python -m personal_ai --once "你好"             # 单次问答并打印真实调用链
-python scripts/smoke_test.py                   # 冒烟测试（32 项）
+python -m unittest discover -s tests           # 单元测试（31 项，纯函数，毫秒级）
+python scripts/smoke_test.py                   # 冒烟测试（32 项，起服务打接口）
 ```
+
+**两层测试的分工**：
+
+| 层 | 数量 | 验什么 | 特点 |
+|---|---|---|---|
+| 单元测试 `tests/test_units.py` | 31 | **某个函数算得对不对**（URL 拼接、密钥不外泄、上下文过滤、状态回落） | 毫秒级，不起服务、不联网 |
+| 冒烟 `scripts/smoke_test.py` | 32 | **整体能不能跑**（起服务、打接口、流式是否真的流式） | 秒级，会真的起一个服务 |
+
+两层都进CI（push / PR 自动在 Ubuntu+Windows × Python 3.11/3.13 上跑）。
 
 ### 接一个真实模型
 

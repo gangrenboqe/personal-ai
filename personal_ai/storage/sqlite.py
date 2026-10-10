@@ -90,10 +90,16 @@ def add_message(
 
 
 def list_messages(db_path: str, session_id: str, limit: int = 200) -> list[dict]:
+    """取该会话的消息，**按时间正序**返回。
+
+    注意：`limit` 取的是**最近** limit 条（不是最早 limit 条）。
+    拼模型上下文时必须用最近的 —— 否则对话变长后会拿着开头的老消息，
+    而用户刚说的那句话根本不在里面。这个 bug 是被单元测试抓出来的。
+    """
     with _connect(db_path) as conn:
         rows = conn.execute(
             "SELECT id, role, content, provider, model, chain, ok, created_at"
-            " FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT ?",
+            " FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?",
             (session_id, limit),
         ).fetchall()
     return [
@@ -107,7 +113,7 @@ def list_messages(db_path: str, session_id: str, limit: int = 200) -> list[dict]
             "ok": bool(r["ok"]),
             "created_at": r["created_at"],
         }
-        for r in rows
+        for r in reversed(rows)
     ]
 
 

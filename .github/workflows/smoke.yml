@@ -26,5 +26,8 @@ jobs:
       - name: 安装依赖
         run: python -c "print('零第三方依赖，无需 pip install')"
 
-      - name: 冒烟测试（32 项）
+      - name: 单元测试（31 项，纯函数层，不起服务不联网）
+        run: python -m unittest discover -s tests
+
+      - name: 冒烟测试（32 项，起服务打接口）
         run: python scripts/smoke_test.py
