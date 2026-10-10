@@ -35,6 +35,7 @@
     statusDot: document.getElementById("statusDot"),
     sessionSelect: document.getElementById("sessionSelect"),
     newSessionButton: document.getElementById("newSessionButton"),
+    gatewayButton: document.getElementById("gatewayButton"),
     chatLog: document.getElementById("chatLog"),
     chatChain: document.getElementById("chatChain"),
     panelEngine: document.getElementById("panelEngine"),
@@ -606,6 +607,10 @@
     renderQueue();
     setActivity("idle");
     setMode(state.mode);
+  });
+
+  ui.gatewayButton.addEventListener("click", () => {
+    window.open("http://127.0.0.1:20128", "_blank", "noopener");
   });
 
   ui.newSessionButton.addEventListener("click", async () => {
