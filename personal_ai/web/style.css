@@ -13,6 +13,11 @@
   --good: #8de2b3;
   --warm: #f1cf8a;
   --shadow: 0 28px 100px rgba(0,0,0,0.42);
+  /* 告诉浏览器/操作系统：本页是深色界面。
+     不写这一句，Windows 上原生下拉列表会按浅色弹出，
+     而 select 的文字是接近白色的 #f3f6fb → 白字落在白底上，整个列表看不见，
+     只有鼠标悬停时的高亮色能看见。这是实测踩过的坑。 */
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -597,6 +602,13 @@ body[data-mode="future"] .axis-glow {
   padding: 6px 8px;
   font: inherit;
   font-size: 12px;
+}
+
+/* 下拉列表里每一项的配色：必须显式指定。
+   不指定的话，选项会继承 select 的浅色文字，落到系统浅色弹出背景上 = 看不见。 */
+.session-select option {
+  background-color: #0b1017;
+  color: var(--text);
 }
 
 .chat-chain {
