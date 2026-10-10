@@ -20,7 +20,7 @@
 | 来源透明（回答携带真实调用链） | ✅ 已实现 |
 | 过去/现在/未来 时间骨架 UI | ✅ 已接入真实接口（A3） |
 | **未来区（Task）** | ✅ 已完成（A4）：任务落库、推进状态、删除，三段全部由真实数据驱动 |
-| 自动化测试 | ✅ 21/21 通过（`python scripts/smoke_test.py`） |
+| 自动化测试 | ✅ 32/32 通过（`python scripts/smoke_test.py`） |
 | **真实模型调用** | ✅ **已验证 2026-10-06** —— 经本机 AI 网关 → SiliconFlow → `deepseek-ai/DeepSeek-V3.2`，实测见下方「可核验的证据」 |
 | **流式输出（SSE，让回答像 ChatGPT 一样边生成边显示）** | ✅ 已完成（A5）：真实模型实测 16～33 个增量块，首块 1.6s（热） |
 | Memory / Task（未来区） | ⛔ 未实现，仅有视觉占位 |
@@ -47,7 +47,7 @@ Key 只存在于进程内，不写入任何文件。
 ```bash
 python -m personal_ai --status                 # 查看当前 provider 与配置
 python -m personal_ai --once "你好"             # 单次问答并打印真实调用链
-python scripts/smoke_test.py                   # 冒烟测试（21 项）
+python scripts/smoke_test.py                   # 冒烟测试（32 项）
 ```
 
 ### 接一个真实模型
@@ -129,6 +129,10 @@ personal_ai/
 scripts/
 ├── smoke_test.py             冒烟测试（自动拉起服务并跑 32 项检查）
 └── start_local.py             一键启动 + 自动接入本机 AI 网关
+docs/
+├── DECISIONS.md              设计决策记录（为什么这么选，以及放弃了什么）
+├── CHANGELOG.md              变更日志（按时间倒序，含每次的验证方式）
+└── WORKFLOW.md               每轮工作模板（改之前/改之后各做什么）
 ```
 
 ---
@@ -203,6 +207,18 @@ class MyProvider(ProviderBase):
 - [ ] A7 多端访问
 
 项目内部的任务树、决策记录与职业资料保存在本机 `_agent_center/`（含个人信息，**不随本仓库公开**）。
+
+---
+
+## Engineering discipline（工程习惯）
+
+简历上"有良好的工程习惯"是形容词；这里是**能点开的三个目录文件**：
+
+| 文件 | 是什么 | 为什么留着 |
+|---|---|---|
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | 设计决策记录（ADR 风格：决策 / 理由 / 放弃的备选 / 代价） | 让"为什么不用 Flask"这类问题有据可查，而不是临场编答案 |
+| [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | 变更日志（时间倒序，含每次的验证方式） | 每一条改动都能追溯到它被什么证据证明过 |
+| [`docs/WORKFLOW.md`](docs/WORKFLOW.md) | 每轮工作模板 | 把"改代码前先想清楚、改完必须验证"固化成可重复的流程 |
 
 ---
 
