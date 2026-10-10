@@ -1,0 +1,30 @@
+name: smoke
+
+# 每次 push / PR 自动跑一遍 32 项冒烟测试。
+# 目的：README 上写的「32/32 通过」不再是一句需要相信作者的话，而是每次都由机器重跑。
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: 安装依赖
+        run: python -c "print('零第三方依赖，无需 pip install')"
+
+      - name: 冒烟测试（32 项）
+        run: python scripts/smoke_test.py

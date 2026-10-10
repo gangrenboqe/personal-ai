@@ -57,6 +57,34 @@ def gateway_key() -> str | None:
     return row[0] if row else None
 
 
+def warm_up_async(cfg: Config) -> None:
+    """后台预热一次真实调用。
+
+    为什么要有这一步：上游模型**冷启动**实测要 10～12 秒才出第一个字，
+    预热后稳定在 1.6 秒左右。演示/面试现场让对方等 12 秒，观感很糟。
+
+    做法：起一个后台线程，服务起来 2 秒后静默问一句极短的话。
+    失败完全不影响正常使用（最多回到"第一句慢"），所以异常一律吞掉并提示。
+    """
+    import threading
+    import time
+
+    def _run() -> None:
+        time.sleep(2)
+        try:
+            from personal_ai.core import ChatService
+
+            svc = ChatService(cfg)
+            sid = svc.new_session(title="预热（可删）")
+            t0 = time.time()
+            svc.send(sid, "hi")
+            print("[预热] 完成，耗时 %.1fs —— 现在提问会快很多" % (time.time() - t0))
+        except Exception as e:  # 预热失败无所谓，不影响正常服务
+            print("[预热] 跳过（%s）—— 不影响使用，只是第一句仍会慢" % e)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
 def main() -> int:
     if not gateway_up():
         print("=" * 60)
@@ -82,6 +110,11 @@ def main() -> int:
         model=MODEL,
         port=8787,
     )
+    if "--no-warmup" in sys.argv:
+        print("[预热] 已按 --no-warmup 跳过 —— 第一句提问会慢（约 10~12 秒）")
+    else:
+        print("[预热] 正在后台预热模型，完成后第一句会快很多…")
+        warm_up_async(cfg)
     run_server(cfg)
     return 0
 

@@ -88,10 +88,25 @@ class ChatService:
         )
 
     def _build_messages(self, session_id: str) -> list[ChatMessage]:
+        """组装发给模型的上下文。
+
+        两条过滤规则（2026-10-10 加，起因是一次真实的答非所问）：
+        1) 离线兜底（mock）产生的假回答不进上下文
+           —— 它会被模型当成"你自己说过的话"，导致答非所问。
+        2) 生成失败（ok=False）的回答也不进上下文
+           —— 那是一次失败记录，不是有效对话。
+        它们仍然留在数据库里（历史可查），只是不再参与后续推理。
+        """
         out = [ChatMessage(role="system", content=self.config.system_prompt)]
         for m in list_messages(self.config.db_path, session_id, limit=50):
-            if m["role"] in ("user", "assistant"):
-                out.append(ChatMessage(role=m["role"], content=m["content"]))
+            if m["role"] not in ("user", "assistant"):
+                continue
+            if m["role"] == "assistant":
+                if m.get("provider") == "mock":
+                    continue
+                if m.get("ok") is False:
+                    continue
+            out.append(ChatMessage(role=m["role"], content=m["content"]))
         return out
 
     # ---------- 元信息 ----------

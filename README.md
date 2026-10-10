@@ -34,6 +34,9 @@
 
 零第三方依赖。装了 Python 3.9+ 就能跑，不需要 pip install 任何东西。
 
+**实测过的环境**（没测过的组合不敢保证）：Windows 11 + Python 3.11 / 3.13。
+Linux / macOS 未在真机验证；CI 上跑的是 ubuntu-latest 与 windows-latest。
+
 ```bash
 python -m personal_ai --serve          # 离线模式（mock Provider，不调用真实模型）
 python scripts/start_local.py          # 一键启动并自动接入本机 OmniRoute 网关
