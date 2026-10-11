@@ -1,5 +1,5 @@
 @echo off
-cd /d "E:\DSHPersonalAI"
+cd /d "%~dp0"
 title Personal AI
 
 set "LOG=%LOCALAPPDATA%\personal_ai\launch.log"
@@ -59,9 +59,26 @@ call :log "步骤5: 网关已就绪"
 :GW_OK
 echo  [2/3] 启动 Personal AI ...
 call :log "步骤6: 准备启动 python"
-set "PY=C:\Users\Administrator\.workbuddy\binaries\python\versions\3.13.12\python.exe"
-if not exist "%PY%" set "PY=python"
-call :log "步骤6: python 路径=%PY% 存在=%PY%"
+
+rem 用 PATH 上的 python，不写死任何一台机器的绝对路径
+where python >nul 2>nul
+if not errorlevel 1 (
+    set "PY=python"
+) else (
+    where py >nul 2>nul
+    if not errorlevel 1 (
+        set "PY=py"
+    ) else (
+        echo.
+        echo  没有找到 python. 请先安装 Python 3.9 以上版本,
+        echo  并勾选 Add Python to PATH.
+        echo.
+        call :log "错误: PATH 上没有 python / py"
+        pause >nul
+        exit /b 1
+    )
+)
+call :log "步骤6: 使用解释器 %PY%"
 
 echo  [3/3] 服务运行中: http://127.0.0.1:8787
 echo        要停止就关掉这个窗口, 或按 Ctrl+C.
