@@ -2,6 +2,23 @@
 
 > English overview: [README_EN.md](README_EN.md) · 中文完整版见下。
 
+**一句话定位：跑在自己电脑上的 AI 入口——对话、任务、历史都存在本地，模型随时可换，每条回答都能看出它从哪来。**
+
+```mermaid
+flowchart LR
+    B["浏览器"] -->|"HTTP"| S["Personal AI 服务<br/>127.0.0.1:8787"]
+    S -->|"SSE 流式"| B
+    S -->|"读写"| D[("SQLite 单文件<br/>data/personal_ai.db")]
+    S -->|"OpenAI 兼容协议"| G["本机 AI 网关<br/>127.0.0.1:20128"]
+    G -->|"HTTPS"| U["上游模型<br/>DeepSeek-V3.2"]
+```
+
+**实际运行的样子**——注意每条回答上方那一行：那是这条回答的真实来源链，不是装饰。
+
+![运行截图：真实模型回答，每条都带来源链](docs/img/screenshot-home.png)
+
+**运维视角**（怎么部署、怎么监控、出问题先查什么）：见 **[docs/OPERATIONS.md](docs/OPERATIONS.md)**。
+
 > 我的统一 AI 入口与个人 AI 数据层。
 > History、Memory、Task、项目上下文**属于我本人**，不属于任何一家模型；
 > Model / Agent / Provider **三层都可以替换**。
