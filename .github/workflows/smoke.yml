@@ -1,7 +1,12 @@
 name: smoke
 
-# 每次 push / PR 自动跑一遍 32 项冒烟测试。
-# 目的：README 上写的「32/32 通过」不再是一句需要相信作者的话，而是每次都由机器重跑。
+# 每次 push / PR 自动跑一遍单元测试（31 项）+ 冒烟测试（32 项）。
+# 目的：README 上写的「全部通过」不再是一句需要相信作者的话，而是每次都由机器重跑。
+
+# 踩过的坑（Windows 分支）：
+# 1) Windows runner 默认用 PowerShell 执行命令。带中文+引号的命令会被解析坏，
+#    所以 `run:` 里只写 ASCII 命令，中文只出现在注释和步骤名里。
+# 2) Windows 控制台编码不是 UTF-8，Python 打印中文会炸，故统一设 PYTHONIOENCODING。
 
 on:
   push:
@@ -16,6 +21,9 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.11", "3.13"]
 
+    env:
+      PYTHONIOENCODING: utf-8
+
     steps:
       - uses: actions/checkout@v4
 
@@ -23,11 +31,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: 安装依赖
-        run: python -c "print('零第三方依赖，无需 pip install')"
+      - name: Dependencies
+        run: python --version
 
-      - name: 单元测试（31 项，纯函数层，不起服务不联网）
+      - name: Unit tests (31)
         run: python -m unittest discover -s tests
 
-      - name: 冒烟测试（32 项，起服务打接口）
+      - name: Smoke tests (32)
         run: python scripts/smoke_test.py
