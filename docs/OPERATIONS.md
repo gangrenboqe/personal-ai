@@ -133,7 +133,7 @@ python -c "import sqlite3;c=sqlite3.connect('data/personal_ai.db');print(c.execu
 |---|---|---|
 | **PowerShell 脚本中文全是乱码** | `.ps1` 文件存成了**不带 BOM 的 UTF-8**，而 Windows PowerShell 5.1 默认按本地编码读 | 存成 **UTF-8 with BOM**。另外校验语法要用 `ReadAllText+Parser::ParseInput`——用`ParseFile` 会按 GBK 读，**报一堆假语法错** |
 | **`git push` 报 `CONNECT tunnel failed, response 502`** | 本机代理/网络问题，**不是代码问题、不是仓库问题** | 换网络或等隧道恢复后重试。**别去改代码**，也别让 Agent 反复重试 |
-| **CI 里 Linux 全绿、Windows 全红** | Windows runner 默认用 PowerShell 执行命令，我写的那句 `python -c "print('零第三方依赖…')"` **带中文加引号**被解析坏 | `run:` 里**只写纯英文命令**，中文只放进注释；并固定 `PYTHONIOENCODING=utf-8`（Windows 控制台非 UTF-8，Python 打印中文会炸） |
+| **CI 里 Linux 全绿、Windows 全红** | Windows runner 默认用 PowerShell 执行命令，工作流里那句 `python -c "print('零第三方依赖…')"` **带中文加引号**被解析坏 | `run:` 里**只写纯英文命令**，中文只放进注释；并固定 `PYTHONIOENCODING=utf-8`（Windows 控制台非 UTF-8，Python 打印中文会炸） |
 
 ---
 
