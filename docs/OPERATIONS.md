@@ -135,6 +135,17 @@ python -c "import sqlite3;c=sqlite3.connect('data/personal_ai.db');print(c.execu
 | **`git push` 报 `CONNECT tunnel failed, response 502`** | 本机代理/网络问题，**不是代码问题、不是仓库问题** | 换网络或等隧道恢复后重试。**别去改代码**，也别让 Agent 反复重试 |
 | **CI 里 Linux 全绿、Windows 全红** | Windows runner 默认用 PowerShell 执行命令，工作流里那句 `python -c "print('零第三方依赖…')"` **带中文加引号**被解析坏 | `run:` 里**只写纯英文命令**，中文只放进注释；并固定 `PYTHONIOENCODING=utf-8`（Windows 控制台非 UTF-8，Python 打印中文会炸） |
 
+**下面两条是 2026-10-13 当天真实发生的**（属于"凭据与环境问题，提交内容本身没错"）：
+
+| 症状 | 真正的原因 | 怎么办 |
+|---|---|---|
+| **`git push` 报 403，`Permission to xxx.git denied to <你自己>`** | ① 细粒度令牌是**按仓库逐个授权**的——用 A 仓的令牌推 B 仓必然 403；② git 优先用本机凭据管理器缓存的**旧凭据**去认证，所以报错里"被拒绝的人"是你自己 | 绕开本机缓存凭据再推：`GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git push https://<账号>:<令牌>@github.com/<仓库>.git <分支>`；**哪枚令牌对应哪个仓，只能逐个试**，不要假设一枚通吃 |
+| **推完了，`git status` 仍显示 `ahead N`** | 推送用的是完整 URL 而不是 remote 名，git **不会刷新 `origin/xxx` 跟踪引用** | 推完跑一次 `git fetch origin`，`git status` 就干净了。核对是否真推上去，用 `git ls-remote origin <分支>` 跟本地 `HEAD` 比 |
+
+> ⚠️ **一个我踩过的判断错误**：想确认"这枚令牌有没有写权限"时，去查了 API 返回的 `permissions` 字段——
+> **那个字段表示的是「你这个账号对该仓库的权限」，不是「这枚令牌的权限」**。owner 查自己的仓库，它永远是 `push=true`，
+> 据此下结论会得出完全错误的判断。**令牌到底能不能写，只有真推一次才知道。**
+
 ---
 
 ## 五、备份与迁移
