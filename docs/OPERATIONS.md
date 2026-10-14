@@ -35,7 +35,7 @@
 3. 启动服务；连不上网关会**自动重试一次**，仍不行才降级到离线模式
 
 🔎 **它每一步都写了日志**：`%LOCALAPPDATA%\personal_ai\launch.log`
-（即 `C:\Users\Administrator\AppData\Local\personal_ai\launch.log`）。
+（资源管理器地址栏粘贴 `%LOCALAPPDATA%` 可直达）。
 **出问题先看这个文件的最后一行**——它停在哪一步，就是死在哪一步。
 
 ### 方式二：命令行
