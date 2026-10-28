@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>我的 AI · Personal AI MVP</title>
+  <meta name="description" content="Personal AI client prototype — past, present, future.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-mode="now">
+  <canvas id="particleCanvas" aria-hidden="true"></canvas>
+
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+        <div>
+          <div class="brand-title">我的 AI</div>
+          <div class="brand-subtitle">个人智能端 · MVP A3 · 真实会话</div>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="icon-button" id="statusButton" title="系统状态" aria-label="打开系统状态">
+          <span class="status-dot" id="statusDot"></span>
+        </button>
+        <button class="text-button" id="themeButton">默认视觉</button>
+      </div>
+    </header>
+
+    <section class="time-axis" aria-label="时间轴">
+      <div class="axis-line" aria-hidden="true">
+        <div class="axis-glow"></div>
+      </div>
+
+      <button class="time-node past" data-focus="past">
+        <span class="time-dot"></span>
+        <span class="time-label">过去</span>
+        <span class="time-desc">经历 · 记忆 · 已发生</span>
+      </button>
+
+      <button class="time-node now active" data-focus="now">
+        <span class="time-dot"></span>
+        <span class="time-label">现在</span>
+        <span class="time-desc">思考 · 对话 · 正发生</span>
+      </button>
+
+      <button class="time-node future" data-focus="future">
+        <span class="time-dot"></span>
+        <span class="time-label">未来</span>
+        <span class="time-desc">任务 · 计划 · 将发生</span>
+      </button>
+    </section>
+
+    <section class="workspace">
+      <div class="workspace-copy">
+        <div class="eyebrow" id="stateEyebrow">NOW · 当前发生</div>
+        <h1 id="mainTitle">让 AI 的行动变得可见。</h1>
+        <p id="mainDescription">
+          这是个人端的第一块地基。时间轴始终存在，能力以后从侧面进入；今天先让界面本身拥有连续的状态与呼吸。
+        </p>
+      </div>
+
+      <div class="visual-stage" id="visualStage">
+        <div class="visual-center">
+          <div class="state-symbol" id="stateSymbol"></div>
+          <div class="visual-state" id="visualState">空闲</div>
+          <div class="visual-hint" id="visualHint">等待下一刻</div>
+        </div>
+      </div>
+
+      <div class="conversation-strip">
+        <div class="conversation-meta">
+          <span class="meta-label">当前工作</span>
+          <span class="meta-value" id="workValue">自由思考</span>
+        </div>
+        <div class="conversation-state">
+          <span class="mini-dot"></span>
+          <span id="queueText">输入队列为空</span>
+        </div>
+      </div>
+
+      <div class="chat-panel" id="chatPanel">
+        <div class="chat-head">
+          <select id="sessionSelect" class="session-select" aria-label="选择会话"></select>
+          <button class="subtle-button" id="newSessionButton">新建会话</button>
+          <button class="subtle-button" id="gatewayButton" type="button">网关面板</button>
+          <span class="chat-chain" id="chatChain">来源 —</span>
+        </div>
+        <div class="chat-log" id="chatLog">
+          <div class="chat-empty">还没有对话。发一条消息，它会落进你自己的 SQLite。</div>
+        </div>
+      </div>
+
+      <div class="chat-panel" id="futurePanel" hidden>
+        <div class="chat-head">
+          <input id="taskInput" class="session-select" placeholder="要做什么？写完按回车" aria-label="新任务">
+          <span class="chat-chain" id="taskCount">0 条</span>
+        </div>
+        <div class="chat-log" id="taskList">
+          <div class="chat-empty">还没有任务。加一条，它就属于「未来」。</div>
+        </div>
+      </div>
+
+      <div class="composer">
+        <textarea
+          id="messageInput"
+          rows="3"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="告诉 AI 你现在想做什么……&#10;Enter 换行 · Ctrl+Enter 发送"
+          aria-label="消息输入框"
+        ></textarea>
+
+        <div class="composer-bottom">
+          <div class="composer-left">
+            <span class="shortcut-hint">Enter 换行</span>
+            <span class="shortcut-hint">Ctrl+Enter 发送</span>
+            <span class="queued-count" id="queuedCount">0 条待处理</span>
+          </div>
+          <button id="sendButton" class="send-button">发送</button>
+        </div>
+      </div>
+
+      <div class="queue-panel" id="queuePanel" hidden>
+        <div class="queue-header">
+          <span>待处理输入</span>
+          <button class="subtle-button" id="clearQueueButton">清空</button>
+        </div>
+        <div id="queueList" class="queue-list"></div>
+      </div>
+    </section>
+
+    <aside class="system-panel" id="systemPanel" aria-hidden="true">
+      <div class="panel-head">
+        <div>
+          <div class="panel-kicker">SYSTEM STATUS</div>
+          <h2>系统状态</h2>
+        </div>
+        <button class="icon-button" id="closeStatusButton" aria-label="关闭系统状态">×</button>
+      </div>
+
+      <div class="status-grid">
+        <div class="status-card">
+          <span>当前状态</span>
+          <strong id="panelState">空闲</strong>
+        </div>
+        <div class="status-card">
+          <span>当前任务</span>
+          <strong id="panelTask">自由思考</strong>
+        </div>
+        <div class="status-card">
+          <span>Provider 适配层</span>
+          <strong id="panelEngine">读取中</strong>
+        </div>
+        <div class="status-card">
+          <span>调用链</span>
+          <strong id="panelGateway">读取中</strong>
+        </div>
+        <div class="status-card">
+          <span>提供商</span>
+          <strong id="panelProvider">—</strong>
+        </div>
+        <div class="status-card">
+          <span>模型</span>
+          <strong id="panelModel">—</strong>
+        </div>
+        <div class="status-card">
+          <span>历史落库</span>
+          <strong id="panelUsage">—</strong>
+        </div>
+        <div class="status-card">
+          <span>待发送消息</span>
+          <strong id="panelQueue">0</strong>
+        </div>
+      </div>
+
+      <div class="panel-note">
+        以上数值来自后端真实状态（GET /api/health），不是模拟数据。
+        Provider / Model 均可替换；历史存在本地 SQLite，换机器只需拷走一个 .db 文件。
+      </div>
+    </aside>
+
+    <div class="panel-backdrop" id="panelBackdrop" hidden></div>
+
+    <footer class="footer">
+      <span>过去 · 现在 · 未来</span>
+      <span>本地运行 · 数据在你自己的 SQLite</span>
+    </footer>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
