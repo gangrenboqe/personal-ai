@@ -18,7 +18,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-# 项目根目录：本仓库根（代码自动定位，不依赖具体存放路径）
+# 项目根目录：E:\DSHPersonalAI
 ROOT = Path(__file__).resolve().parents[1]
 
 

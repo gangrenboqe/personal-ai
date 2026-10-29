@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from ..config import Config
+from ..memory import MemoryStore
 from ..providers import ChatMessage, ChatResponse, available, create
 from ..storage import add_message, create_session, init_db, list_messages, list_sessions
 
@@ -18,6 +19,8 @@ class ChatService:
         self.config = config or Config.from_env()
         init_db(self.config.db_path)
         self.provider = create(self.config.provider, self.config)
+        # 记忆层（施工单 29）：回答前检索，命中才注入，见 _build_messages
+        self.memory = MemoryStore(self.config.db_path)
 
     # ---------- 会话 ----------
 
@@ -96,9 +99,22 @@ class ChatService:
         2) 生成失败（ok=False）的回答也不进上下文
            —— 那是一次失败记录，不是有效对话。
         它们仍然留在数据库里（历史可查），只是不再参与后续推理。
+
+        记忆层注入（施工单 29 · 3.4）：
+        取最后一条用户消息做 FTS5 检索（top 5），命中才拼一条记忆 system 消息，
+        带 source / written_at / verified_at 三元组原样给模型自行权衡；
+        不命中不注入，不塞空内容占上下文。
         """
         out = [ChatMessage(role="system", content=self.config.system_prompt)]
-        for m in list_messages(self.config.db_path, session_id, limit=50):
+        history = list_messages(self.config.db_path, session_id, limit=50)
+        last_user = next(
+            (m["content"] for m in reversed(history) if m["role"] == "user"), ""
+        )
+        if last_user:
+            block = self.memory.get_context_block(last_user)
+            if block:
+                out.append(ChatMessage(role="system", content=block))
+        for m in history:
             if m["role"] not in ("user", "assistant"):
                 continue
             if m["role"] == "assistant":
