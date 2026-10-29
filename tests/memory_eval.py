@@ -31,7 +31,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import time
+import urllib.error
+import urllib.request
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -160,13 +164,95 @@ class ScriptedRecallModel:
     def __init__(self, answer_key: str) -> None:
         self.answer_key = answer_key
 
-    def chat(self, context: str) -> str:
+    def chat(self, context: str, question: str = "") -> str:
+        # question 只为与 LiveModel 保持同签名，脚本化后端不需要它
         if self.answer_key in context:
             return f"根据记忆，答案是 {self.answer_key}。"
         return "我没有找到相关记忆，无法回答。"
 
     def is_correct(self, reply: str) -> bool:
         return self.answer_key in reply
+
+
+
+class LiveModel:
+    """真实模型后端：注入块当系统提示，场景问题当用户消息。
+
+    🔴 判据仍是「回答里含答案关键词」——所以这个分数测的是**关键词命中率**，
+    不是「真模型会不会用记忆」。真模型会换措辞，分数大概率低于脚本化后端
+    （同 agent-tool-loop 那次的教训：12 条失败其实是判据太死，不是模型不会用工具）。
+    """
+
+    def __init__(self, answer_key: str, base_url: str, api_key: str, model: str) -> None:
+        self.answer_key = answer_key
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.model = model
+
+    def chat(self, context: str, question: str = "") -> str:
+        if (context or "").strip():
+            sys_prompt = (
+                "你可以参考下面这段记忆来回答。\n"
+                "如果记忆里没有相关信息，就直接说不知道，不要猜。\n\n" + context
+            )
+        else:
+            sys_prompt = "你没有可用的记忆。如果不知道答案，就直接说不知道，不要猜。"
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": question},
+            ],
+            "max_tokens": 120,
+            "temperature": 0,
+        }
+        req = urllib.request.Request(
+            self.base_url + "/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json",
+                     "Authorization": "Bearer " + self.api_key},
+            method="POST",
+        )
+        # 绕开本机代理（Windows 上 urllib 默认读注册表代理）+ 按 AGENTS.md 第 2 节重试
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        retries = int(os.environ.get("AGENT_RETRIES") or 2)
+        timeout_s = float(os.environ.get("AGENT_TIMEOUT_MS") or 180000) / 1000.0
+        last = None
+        for attempt in range(retries + 1):
+            try:
+                with opener.open(req, timeout=timeout_s) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                return (data["choices"][0]["message"].get("content") or "")
+            except urllib.error.HTTPError as exc:
+                if (exc.code == 429 or 500 <= exc.code < 600) and attempt < retries:
+                    last = exc
+                    time.sleep(1.5 * (attempt + 1))
+                    continue
+                raise RuntimeError(f"模型接口 HTTP {exc.code}") from exc
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                if attempt < retries:
+                    last = exc
+                    time.sleep(1.5 * (attempt + 1))
+                    continue
+                raise RuntimeError(f"模型接口失败: {exc}") from exc
+        raise RuntimeError(f"重试 {retries} 次仍失败: {last}")
+
+    def is_correct(self, reply: str) -> bool:
+        return self.answer_key in reply
+
+
+def make_model(sc: "Scenario", backend: str):
+    """按后端选模型。offline 默认、确定性、可复算；live 需要三个环境变量。"""
+    if backend == "live":
+        base_url = (os.environ.get("AGENT_BASE_URL") or "").strip()
+        api_key = (os.environ.get("AGENT_API_KEY") or "").strip()
+        model = (os.environ.get("AGENT_MODEL") or "").strip()
+        if not (base_url and api_key and model):
+            raise SystemExit(
+                "live 后端需要 AGENT_BASE_URL / AGENT_API_KEY / AGENT_MODEL 三个环境变量"
+            )
+        return LiveModel(sc.answer_key, base_url, api_key, model)
+    return ScriptedRecallModel(sc.answer_key)
 
 
 # ---------------------------------------------------------------- 两段评测
@@ -194,20 +280,20 @@ def eval_stage1_store(store: MemoryStore, sc: Scenario) -> tuple[bool, str]:
     return True, ""
 
 
-def eval_stage2_use(store: MemoryStore, sc: Scenario) -> tuple[bool, bool, str]:
+def eval_stage2_use(store: MemoryStore, sc: Scenario, backend: str = "offline") -> tuple[bool, bool, str]:
     """② 用上了吗。返回 (对照是否对, 检索路径是否对, 失败说明)。
 
     (a) 对照：把 A' 直接塞进上下文（绕过检索），模拟模型必须答对
         —— 验证模拟后端本身工作正常（它是 (b) 的上界）。
     (b) 正常路径：search → build_context_block → 模拟模型。
     """
-    model = ScriptedRecallModel(sc.answer_key)
+    model = make_model(sc, backend)
 
-    direct_reply = model.chat(sc.new_content)
+    direct_reply = model.chat(sc.new_content, sc.question)
     direct_ok = model.is_correct(direct_reply)
 
     block = store.get_context_block(sc.question)
-    recall_reply = model.chat(block)
+    recall_reply = model.chat(block, sc.question)
     recall_ok = model.is_correct(recall_reply)
 
     note = ""
@@ -218,7 +304,7 @@ def eval_stage2_use(store: MemoryStore, sc: Scenario) -> tuple[bool, bool, str]:
     return direct_ok, recall_ok, note
 
 
-def run(db_path: str) -> dict:
+def run(db_path: str, backend: str = "offline") -> dict:
     store = MemoryStore(db_path)
     s1, direct, recall = [], [], []
     failures: list[str] = []
@@ -227,7 +313,7 @@ def run(db_path: str) -> dict:
         s1.append(ok1)
         if not ok1:
             failures.append(f"① 场景{i}「{sc.topic}」: {why1}")
-        ok_d, ok_r, why2 = eval_stage2_use(store, sc)
+        ok_d, ok_r, why2 = eval_stage2_use(store, sc, backend)
         direct.append(ok_d)
         recall.append(ok_r)
         if not (ok_d and ok_r):
@@ -244,6 +330,8 @@ def run(db_path: str) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description="记忆层两段评测（分数分开报，绝不合并）")
     parser.add_argument("--db", default="", help="SQLite 路径，默认建临时库")
+    parser.add_argument("--backend", default=(os.environ.get("PAI_EVAL_BACKEND") or "offline"),
+                        choices=["offline", "live"], help="offline=脚本化后端（默认）；live=真实模型")
     args = parser.parse_args()
 
     if args.db:
@@ -252,10 +340,12 @@ def main() -> int:
         fd, db = tempfile.mkstemp(suffix=".db")
         os.close(fd)
 
-    report = run(db)
+    report = run(db, args.backend)
 
     print("=" * 64)
-    print("记忆层两段评测（20 条场景 · 离线脚本化后端）")
+    backend_desc = "离线脚本化后端（不代表真实 LLM 成绩）" if args.backend == "offline" \
+        else f"真实模型（{os.environ.get('AGENT_MODEL', '?')}）· 判据仍是关键词命中，不是模型能力"
+    print(f"记忆层两段评测（20 条场景 · {backend_desc}）")
     print("=" * 64)
     print(f"① 存对了吗   : {report['stage1']}/{report['total']}"
           "   （写入 A → A' → superseded_by 标记 + 检索只见新条）")
@@ -269,7 +359,7 @@ def main() -> int:
         for line in report["failures"]:
             print(f"  - {line}")
     else:
-        print("三个分数全部满格（离线脚本化后端口径，非真实 LLM）")
+        print("三个分数全部满格（注意口径，见上方后端说明）")
     print("🔴 以上分数分开报，禁止合并成单一总分。")
     print("=" * 64)
 
