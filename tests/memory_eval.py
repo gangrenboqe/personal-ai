@@ -296,11 +296,17 @@ def eval_stage2_use(store: MemoryStore, sc: Scenario, backend: str = "offline") 
     recall_reply = model.chat(block, sc.question)
     recall_ok = model.is_correct(recall_reply)
 
+    # 🔴 2026-10-30 补（WorkBuddy）：失败时必须留下「回答原文 + 注入块」。
+    #    原实现只写一句"没被送进注入块或块里读不出答案"，导致事后无法判断失败类型
+    #    （是措辞不匹配？还是真被别的记忆带偏？还是根本没注入？）→ 只能整轮重跑。
     note = ""
     if not direct_ok:
-        note = "对照路径失败：模拟后端连直塞文本都没用上（脚本自身问题）"
+        note = (f"对照路径失败｜answer_key={sc.answer_key!r}"
+                f"｜模型回答={direct_reply[:240]!r}")
     elif not recall_ok:
-        note = "检索路径失败：正确记忆没有被送进注入块（或块里读不出答案）"
+        note = (f"检索路径失败｜answer_key={sc.answer_key!r}"
+                f"｜模型回答={recall_reply[:240]!r}"
+                f"｜注入块={block[:240]!r}")
     return direct_ok, recall_ok, note
 
 
