@@ -11,7 +11,7 @@
 ## 三步跑起来（不需要任何 API key）
 
 ```bash
-git clone <本仓地址> && cd DSHPersonalAI
+git clone https://github.com/gangrenboqe/personal-ai.git && cd personal-ai
 python demo.py
 # → 屏幕输出：一次问答（离线 mock，诚实标注）+ 一条记忆写入 + 记忆被检索注入的全过程
 #   真实运行输出样例见 docs/demo_output.txt
