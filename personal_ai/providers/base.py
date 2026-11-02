@@ -13,8 +13,12 @@ from typing import Any
 
 @dataclass
 class ChatMessage:
-    role: str  # system / user / assistant
+    role: str  # system / user / assistant / tool
     content: str
+    # 工具调用回填（agent loop 用，OpenAI tool_calls 规范的原始结构）：
+    # assistant 消息带 tool_calls；tool 消息带 tool_call_id。普通消息两者为 None。
+    tool_calls: list[dict] | None = None
+    tool_call_id: str | None = None
 
 
 @dataclass
@@ -33,6 +37,8 @@ class ChatResponse:
     ok: bool = True
     error: str | None = None
     raw: dict[str, Any] | None = None
+    # 模型返回的工具调用（OpenAI tool_calls 规范）。None = 本次响应没有工具调用。
+    tool_calls: list[dict] | None = None
 
     def chain_text(self) -> str:
         return " → ".join(self.chain) if self.chain else self.model
@@ -43,6 +49,10 @@ class ProviderBase(ABC):
 
     name = "base"
     display_name = "抽象 Provider"
+
+    # 是否支持 OpenAI 风格的工具调用（tools 参数 + tool_calls 响应）。
+    # ChatService 只对 True 的 Provider 传 tools，mock 等离线后端路径零影响。
+    supports_tools = False
 
     def __init__(self, config) -> None:
         self.config = config

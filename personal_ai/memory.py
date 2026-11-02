@@ -448,3 +448,123 @@ class MemoryStore:
         if row is None:
             raise MemoryCommandError(f"路径不存在（或已删除）: {path}")
         return row
+
+
+# ------------------------------------------------------------------
+# v2：模型工具调用（施工单 32 · S1）
+#
+# 设计者修正（2026-11-01）：path 与 source 不让模型填——
+#   模型会编不规范 path（实测编出"编程偏好/代码格式化"，无 /memories/ 前缀），
+#   也会把用户原话当 source 填回来（循环引用，无审计信息量）。
+#   → path 由代码生成 /memories/{kind}/{slug}.md，source 固定"模型自主写入"，
+#     schema 只留 kind / title / content 三个参数。
+# ------------------------------------------------------------------
+
+MEMORY_SOURCE_AUTO = "模型自主写入"
+
+
+def _slugify(title: str, max_len: int = 40) -> str:
+    """把模型的 title 短语清洗成路径安全的 slug：中文保留，空白与非法字符转 -。"""
+    s = re.sub(r'[\\/:*?"<>|\s]+', "-", (title or "").strip()).strip("-")
+    s = s[:max_len].strip("-")
+    return s or "note"
+
+
+def memory_tools_schema() -> list[dict]:
+    """三个记忆工具的 OpenAI JSON Schema（与 MemoryToolExecutor 一一对应）。"""
+    return [
+        {"type": "function", "function": {
+            "name": "memory_create",
+            "description": (
+                "把一条值得长期保留的记忆写入记忆层（用户明确说出的偏好/事实/结论/技能，"
+                "或对话中得出的重要结论）。不确定值不值得记就不要调用；闲聊不要调用。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": list(VALID_KINDS),
+                        "description": "记忆类型：fact=事实, preference=偏好, conclusion=结论, skill=技能",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "短语标题（用于生成存储路径），如：回答风格偏好",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "记忆正文，一两句话说清这件事本身",
+                    },
+                },
+                "required": ["kind", "title", "content"],
+            },
+        }},
+        {"type": "function", "function": {
+            "name": "memory_view",
+            "description": "查看某条记忆或某目录下的记忆列表。path 来自 memory_create 的返回结果。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "/memories/ 开头的存储路径"},
+                },
+                "required": ["path"],
+            },
+        }},
+        {"type": "function", "function": {
+            "name": "memory_search",
+            "description": "按关键词检索记忆层，返回相关记忆及其来源与写入时间。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "关键词或短语"},
+                    "limit": {"type": "integer", "description": "最多返回几条，默认 5"},
+                },
+                "required": ["query"],
+            },
+        }},
+    ]
+
+
+class MemoryToolExecutor:
+    """把模型发来的工具调用路由到 MemoryStore。所有返回都是可 JSON 序列化的 dict。
+
+    约定：命令语义错误（重名 / kind 非法 / 路径不存在）不抛异常，
+    统一回 {"ok": False, "error": ...} 给模型，让它自己决定下一步（29 号单确立的回填风格）。
+    """
+
+    def __init__(self, store: MemoryStore) -> None:
+        self.store = store
+
+    def execute(self, name: str, arguments: dict) -> dict:
+        arguments = arguments or {}
+        try:
+            if name == "memory_create":
+                return self._create(arguments)
+            if name == "memory_view":
+                rows = self.store.view(str(arguments.get("path") or ""))
+                return {"ok": True, "count": len(rows), "items": rows[:10]}
+            if name == "memory_search":
+                raw_limit = arguments.get("limit") or 5
+                try:
+                    limit = max(1, min(20, int(raw_limit)))
+                except (TypeError, ValueError):
+                    limit = 5
+                hits = self.store.search(str(arguments.get("query") or ""), limit=limit)
+                return {"ok": True, "count": len(hits), "items": hits}
+            return {"ok": False, "error": f"未知工具: {name}"}
+        except MemoryCommandError as e:
+            return {"ok": False, "error": str(e)}
+
+    def _create(self, arguments: dict) -> dict:
+        kind = str(arguments.get("kind") or "").strip()
+        title = str(arguments.get("title") or "").strip()
+        content = str(arguments.get("content") or "").strip()
+        if kind not in VALID_KINDS:
+            return {"ok": False, "error": f"kind 必须是 {'/'.join(VALID_KINDS)} 之一，收到: {kind!r}"}
+        if not title:
+            return {"ok": False, "error": "title 必填（短语标题）"}
+        if not content:
+            return {"ok": False, "error": "content 必填（记忆正文）"}
+        path = f"/memories/{kind}/{_slugify(title)}.md"
+        new_id = self.store.create(path, content, kind, MEMORY_SOURCE_AUTO)
+        return {"ok": True, "id": new_id, "path": path}

@@ -17,9 +17,45 @@ from urllib.parse import urlparse
 from .base import ChatMessage, ChatResponse, ProviderBase
 
 
+def parse_chat_response_body(body: dict) -> tuple[str, list[dict]]:
+    """从 /chat/completions 响应体解析 (content, tool_calls)。纯函数，可独立测试。
+
+    tool_calls 元素规范为 {"id", "name", "arguments"(已转 dict), "raw"(OpenAI 原始结构，
+    供 agent loop 按 role=assistant 原样回填)}；
+    arguments 解析失败或非 dict 时兜底 {}，不让一次坏参数拖垮整轮对话。
+    """
+    message = (body.get("choices") or [{}])[0].get("message") or {}
+    content = message.get("content") or ""
+    calls: list[dict] = []
+    for c in message.get("tool_calls") or []:
+        fn = c.get("function") or {}
+        try:
+            args = json.loads(fn.get("arguments") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            args = {}
+        calls.append({
+            "id": str(c.get("id") or ""),
+            "name": str(fn.get("name") or ""),
+            "arguments": args if isinstance(args, dict) else {},
+            "raw": c if isinstance(c, dict) else {},
+        })
+    return content, calls
+
+
+def _dump_message(m: ChatMessage) -> dict:
+    """ChatMessage → OpenAI 消息 dict。工具回填字段（tool_calls / tool_call_id）仅在存在时输出。"""
+    d: dict = {"role": m.role, "content": m.content}
+    if m.tool_calls:
+        d["tool_calls"] = m.tool_calls
+    if m.tool_call_id:
+        d["tool_call_id"] = m.tool_call_id
+    return d
+
+
 class OpenAICompatProvider(ProviderBase):
     name = "openai_compat"
     display_name = "OpenAI 兼容协议 Provider"
+    supports_tools = True
 
     def is_configured(self) -> bool:
         return bool(self.config.base_url and self.config.api_key)
@@ -50,11 +86,12 @@ class OpenAICompatProvider(ProviderBase):
             raw=raw,
         )
 
-    def complete(self, messages: list[ChatMessage]) -> ChatResponse:
+    def complete(self, messages: list[ChatMessage], tools: list[dict] | None = None) -> ChatResponse:
         """发送一次请求；失败且可重试时自动重试。
 
         为什么要有重试：上游供应商冷启动实测可能超过 60 秒（2026-10-06 记录到
         114 秒才返回、以及 504 网关超时），单次请求失败不代表链路不可用。
+        tools：OpenAI 工具 schema 列表，None 表示本次不启用工具调用。
         """
         if not self.is_configured():
             return self._blank("未配置 PAI_BASE_URL / PAI_API_KEY")
@@ -62,7 +99,7 @@ class OpenAICompatProvider(ProviderBase):
         attempts = 1 + max(0, self.config.retries)
         last: ChatResponse | None = None
         for i in range(attempts):
-            resp, retryable = self._request(messages)
+            resp, retryable = self._request(messages, tools)
             if resp.ok:
                 return resp
             last = resp
@@ -71,13 +108,11 @@ class OpenAICompatProvider(ProviderBase):
             time.sleep(min(8.0, 1.5 * (i + 1)))
         return last  # type: ignore[return-value]
 
-    def _request(self, messages: list[ChatMessage]) -> tuple[ChatResponse, bool]:
+    def _request(self, messages: list[ChatMessage], tools: list[dict] | None = None) -> tuple[ChatResponse, bool]:
         """返回 (响应, 是否值得重试)。"""
-        payload = {
-            "model": self.config.model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
-            "stream": False,
-        }
+        payload: dict = {"model": self.config.model, "messages": [_dump_message(m) for m in messages], "stream": False}
+        if tools:
+            payload["tools"] = tools
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
             self._endpoint(),
@@ -100,9 +135,7 @@ class OpenAICompatProvider(ProviderBase):
         except Exception as e:  # 网络层异常（含超时）统一收敛，不让服务崩
             return self._blank(f"{type(e).__name__}: {e}"), True
 
-        try:
-            content = body["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError):
+        if not isinstance(body, dict) or not (body.get("choices") or []):
             return (
                 self._blank(
                     f"响应格式无法解析: {str(body)[:500]}",
@@ -111,9 +144,8 @@ class OpenAICompatProvider(ProviderBase):
                 False,
             )
 
-        real_model = ""
-        if isinstance(body, dict):
-            real_model = str(body.get("model") or "")
+        content, tool_calls = parse_chat_response_body(body)
+        real_model = str(body.get("model") or "")
 
         return (
             ChatResponse(
@@ -123,6 +155,7 @@ class OpenAICompatProvider(ProviderBase):
                 chain=self.default_chain() + [real_model or self.default_model()],
                 ok=True,
                 raw=body,
+                tool_calls=tool_calls or None,
             ),
             False,
         )
