@@ -8,6 +8,20 @@
 
 ---
 
+## 三步跑起来（不需要任何 API key）
+
+```bash
+git clone <本仓地址> && cd DSHPersonalAI
+python demo.py
+# → 屏幕输出：一次问答（离线 mock，诚实标注）+ 一条记忆写入 + 记忆被检索注入的全过程
+#   真实运行输出样例见 docs/demo_output.txt
+```
+
+Python 3.9+，零第三方依赖，不需要 pip install 任何东西。想看完整服务：`python -m personal_ai --serve` 后打开 <http://127.0.0.1:8787>。
+陌生人复验记录见 [docs/STRANGER_REVIEW.md](docs/STRANGER_REVIEW.md)。
+
+---
+
 ## 当前状态（如实说明，不夸大）
 
 | 能力 | 状态 |
