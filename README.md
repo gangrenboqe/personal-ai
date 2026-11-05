@@ -1,5 +1,7 @@
 # Personal AI
 
+
+[![tests](https://github.com/gangrenboqe/personal-ai/actions/workflows/smoke.yml/badge.svg)](https://github.com/gangrenboqe/personal-ai/actions/workflows/smoke.yml)
 > 我的统一 AI 入口与个人 AI 数据层。
 > History、Memory、Task、项目上下文**属于我本人**，不属于任何一家模型；
 > Model / Agent / Provider **三层都可以替换**。

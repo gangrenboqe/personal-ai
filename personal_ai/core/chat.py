@@ -16,10 +16,15 @@ from ..providers import ChatMessage, ChatResponse, available, create
 from ..storage import add_message, create_session, init_db, list_messages, list_sessions
 
 # 工具使用提示：只说明有什么能力与判断标准，不强令调用（施工单 32：测"模型自己判断"）
+# v3（施工单 38 任务 3）：补 memory_search 的主动调用时机与"查不到就承认"的要求
 _MEMORY_TOOL_HINT = (
-    "[记忆工具] 你可以使用 memory_create / memory_view / memory_search 三个工具。"
+    "[记忆与历史工具] 你可以使用 memory_create / memory_view / memory_search / history_search 四个工具。"
     "当对话里出现了值得长期保留的用户偏好、事实、结论或技能时，你可以调用 memory_create 把它记下来；"
-    "是否记录、记什么，由你自己判断，不确定就不要调用。"
+    "短期一次性的提醒、待办、时效性信息不要记。是否记录、记什么，由你自己判断，不确定就不要调用。\n"
+    "在回答用户问题前，如果问题涉及：用户过去说过的事（「我之前说过什么」「上次那个方案」）、"
+    "用户的个人情况（习惯、偏好、项目、决定）、或需要引用历史上下文的判断——"
+    "先调用 memory_search 查一下记忆，必要时用 history_search 查历史对话，再回答。"
+    "查不到就直说「我没有相关记录」，不要凭印象编。"
 )
 
 

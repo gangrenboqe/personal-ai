@@ -63,8 +63,8 @@ class TestSchema(unittest.TestCase):
         self.tools = {t["function"]["name"]: t["function"] for t in memory_tools_schema()}
 
     def test_01_three_tools(self):
-        """1 恰好三个工具：create / view / search。"""
-        self.assertEqual(set(self.tools), {"memory_create", "memory_view", "memory_search"})
+        """1 工具清单：create / view / search / history_search（38 号任务 4 新增第四个，断言由三改四）。"""
+        self.assertEqual(set(self.tools), {"memory_create", "memory_view", "memory_search", "history_search"})
 
     def test_02_create_params_exactly_kind_title_content(self):
         """2 create 参数恰好 kind/title/content——path 与 source 必须不在 schema 里（设计者修正）。"""
@@ -321,6 +321,92 @@ class TestAgentLoop(unittest.TestCase):
         svc = _loop_service(script, self.db)
         svc.send("", "一直要工具")
         self.assertEqual(len(svc.provider.seen), 3)  # 初始 + 2 轮回填，不再继续
+
+
+# ---------------------------------------------------------------- history_search（38 任务 4）
+
+from personal_ai.storage import add_message, create_session, init_db  # noqa: E402
+
+
+class TestHistorySearch(unittest.TestCase):
+    def setUp(self) -> None:
+        fd, self.db = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        init_db(self.db)  # 建 messages / sessions（ChatService 同款顺序）
+        self.exec_ = MemoryToolExecutor(MemoryStore(self.db))
+
+    def _seed(self, title: str, user_text: str, assistant_text: str = "好的。") -> None:
+        sid = create_session(self.db, title=title)
+        add_message(self.db, sid, "user", user_text)
+        add_message(self.db, sid, "assistant", assistant_text)
+
+    def tearDown(self) -> None:
+        gc.collect()
+        for _ in range(3):
+            try:
+                os.unlink(self.db)
+                break
+            except PermissionError:
+                gc.collect()
+
+    def test_24_hit_with_provenance(self):
+        """24 命中：带会话名 / 角色 / 时间 / 片段原文（出处三件套）。"""
+        self._seed("数据库讨论", "我们定了：用 SQLite，不上 Postgres。")
+        r = self.exec_.execute("history_search", {"query": "数据库选型 SQLite"})
+        self.assertTrue(r["ok"])
+        self.assertGreaterEqual(r["count"], 1)
+        top = r["items"][0]
+        self.assertEqual(top["session"], "数据库讨论")
+        self.assertIn(top["role"], ("user", "assistant"))
+        self.assertIn("SQLite", top["snippet"])
+        self.assertNotEqual(top["time"], "时间未知")
+
+    def test_25_two_char_query_like_fallback(self):
+        """25 2 字词走 LIKE 兜底（与记忆层同策略）。"""
+        self._seed("数据库讨论", "我们定了：用 SQLite，不上 Postgres。")
+        r = self.exec_.execute("history_search", {"query": "定了"})
+        self.assertTrue(r["ok"])
+        self.assertGreaterEqual(r["count"], 1)
+
+    def test_26_no_hit_returns_empty_ok(self):
+        """26 检索不到返回 {"ok": True, "count": 0}——模型据此如实说没有记录。"""
+        self._seed("数据库讨论", "我们定了：用 SQLite，不上 Postgres。")
+        r = self.exec_.execute("history_search", {"query": "量子迷宫完全无关词"})
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["count"], 0)
+        self.assertEqual(r["items"], [])
+
+    def test_27_backfill_covers_existing_messages(self):
+        """27 存量回填：messages 先于 MemoryStore 存在时，ensure_tables 一次性补索引。"""
+        self._seed("更早的会话", "历史里提过 trigram 分词方案。")
+        r = self.exec_.execute("history_search", {"query": "trigram 分词方案"})
+        self.assertTrue(r["ok"])
+        self.assertGreaterEqual(r["count"], 1)
+
+    def test_28_role_filter_excludes_tool_noise(self):
+        """28 只检索 user/assistant——mock 噪声与工具轮不进结果。"""
+        self._seed("正常会话", "聊一下部署端口。")
+        r = self.exec_.execute("history_search", {"query": "部署端口"})
+        self.assertTrue(all(i["role"] in ("user", "assistant") for i in r["items"]))
+
+
+class TestSchemaTexts(unittest.TestCase):
+    """38 号任务 1/2/3 的提示文本落地检查（判据/排除规则/时机指引）。"""
+
+    def setUp(self) -> None:
+        self.tools = {t["function"]["name"]: t["function"] for t in memory_tools_schema()}
+
+    def test_29_kind_description_has_priority_rule(self):
+        """29 kind description 含顺序判据与保守兜底（任务 1）。"""
+        d = self.tools["memory_create"]["parameters"]["properties"]["kind"]["description"]
+        for fragment in ("命中即停", "判不出来就填 fact", "仍然是 fact"):
+            self.assertIn(fragment, d)
+
+    def test_30_create_description_has_exclusion_rules(self):
+        """30 create description 含短期提醒排除规则（任务 2）。"""
+        d = self.tools["memory_create"]["description"]
+        for fragment in ("不要记录", "一次性的提醒或待办", "时效性信息"):
+            self.assertIn(fragment, d)
 
 
 if __name__ == "__main__":

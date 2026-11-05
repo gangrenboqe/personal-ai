@@ -93,7 +93,56 @@ def ensure_tables(db_path: str) -> dict:
                 f"memories 表缺少列 {sorted(missing)}——库可能是旧结构，请人工检查: {path}"
             )
         n = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+        _ensure_history_fts(conn)  # 施工单 38 任务 4：对话历史全文检索（只新增，不改旧表结构）
     return {"db": str(path), "memories_rows": n, "columns": sorted(cols)}
+
+
+MESSAGES_FTS_DDL = """
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+    content, session_id UNINDEXED,
+    content='messages', content_rowid='id',
+    tokenize='trigram'
+)
+"""
+
+# 触发器维护增量；存量回填只在触发器首次创建时做一次（幂等）
+MESSAGES_FTS_TRIGGERS = {
+    "messages_fts_ai": """
+        CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+            INSERT INTO messages_fts(rowid, content, session_id)
+            VALUES (new.id, new.content, new.session_id);
+        END
+    """,
+    "messages_fts_ad": """
+        CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, content, session_id)
+            VALUES ('delete', old.id, old.content, old.session_id);
+        END
+    """,
+}
+
+
+def _ensure_history_fts(conn: sqlite3.Connection) -> None:
+    """对话历史 FTS（施工单 38 任务 4）。messages 表结构不动，只新增虚拟表与触发器。"""
+    has_messages = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='messages'"
+    ).fetchone()[0]
+    if not has_messages:
+        # messages 表由 ChatService 的 init_db 创建；独立使用 MemoryStore（如单测临时库）时
+        # 先跳过，等 messages 存在后的下一次 ensure_tables 再补触发器与回填。
+        return
+    existed = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name='messages_fts_ai'"
+    ).fetchone()[0]
+    conn.execute(MESSAGES_FTS_DDL)
+    conn.execute(MESSAGES_FTS_TRIGGERS["messages_fts_ai"])
+    conn.execute(MESSAGES_FTS_TRIGGERS["messages_fts_ad"])
+    if not existed:
+        # 存量回填（一次性；external content 表的行内容实时取自 messages，索引条目在此补齐）
+        conn.execute(
+            "INSERT INTO messages_fts(rowid, content, session_id)"
+            " SELECT id, content, session_id FROM messages"
+        )
 
 
 # ------------------------------------------------------------------ 注入块
@@ -478,6 +527,11 @@ def memory_tools_schema() -> list[dict]:
             "description": (
                 "把一条值得长期保留的记忆写入记忆层（用户明确说出的偏好/事实/结论/技能，"
                 "或对话中得出的重要结论）。不确定值不值得记就不要调用；闲聊不要调用。"
+                "不要记录以下内容："
+                "① 短期、一次性的提醒或待办（「明天提醒我 X」「记得下午做 Y」）；"
+                "② 时效性信息（今天的天气、当前时间、正在进行的对话内容）；"
+                "③ 你自己的中间推理或过程说明。"
+                "只记录会长期有效的事实、偏好、决定。"
             ),
             "parameters": {
                 "type": "object",
@@ -485,7 +539,15 @@ def memory_tools_schema() -> list[dict]:
                     "kind": {
                         "type": "string",
                         "enum": list(VALID_KINDS),
-                        "description": "记忆类型：fact=事实, preference=偏好, conclusion=结论, skill=技能",
+                        "description": (
+                            "按顺序判断，命中即停："
+                            "1. fact —— 客观事实或配置，可用「是什么/在哪里/有多少」提问；"
+                            "2. preference —— 用户偏好或习惯，含「喜欢/习惯/偏好/不喜欢/不要」；"
+                            "3. conclusion —— 已做出的决定，含「定了/决定了/结论是/选定了」；"
+                            "4. skill —— 用户会做但模型不会的事（用于分工）。"
+                            "边界规则：事实里带「我」的主语（如「我的项目在 X」）仍然是 fact，不是 preference；"
+                            "只有表达「偏好/取舍」的才是 preference；判不出来就填 fact（最保守，不影响偏好类检索）。"
+                        ),
                     },
                     "title": {
                         "type": "string",
@@ -513,6 +575,22 @@ def memory_tools_schema() -> list[dict]:
         {"type": "function", "function": {
             "name": "memory_search",
             "description": "按关键词检索记忆层，返回相关记忆及其来源与写入时间。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "关键词或短语"},
+                    "limit": {"type": "integer", "description": "最多返回几条，默认 5"},
+                },
+                "required": ["query"],
+            },
+        }},
+        {"type": "function", "function": {
+            "name": "history_search",
+            "description": (
+                "在历史对话记录里全文检索，返回匹配的对话片段（含所属会话名、时间、片段原文）。"
+                "适合回忆「之前聊过什么」。检索不到会返回空列表——此时如实告诉用户没有相关记录，"
+                "不要凭印象编造。"
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -551,9 +629,72 @@ class MemoryToolExecutor:
                     limit = 5
                 hits = self.store.search(str(arguments.get("query") or ""), limit=limit)
                 return {"ok": True, "count": len(hits), "items": hits}
+            if name == "history_search":
+                return self._history_search(arguments)
             return {"ok": False, "error": f"未知工具: {name}"}
         except MemoryCommandError as e:
             return {"ok": False, "error": str(e)}
+
+    def _history_search(self, arguments: dict) -> dict:
+        """对话历史全文检索（施工单 38 任务 4）。
+
+        - 用 messages_fts（trigram，≥3 字 MATCH 滑窗 + 2 字 LIKE 兜底，与记忆层同策略）
+        - 出处带会话名 + 时间 + 片段原文（截断，防长消息撑爆上下文）
+        - 检索不到返回空列表（{"ok": True, "count": 0}），让模型如实说"没有记录"
+        """
+        query = str(arguments.get("query") or "").strip()
+        if not query:
+            return {"ok": False, "error": "query 必填（关键词或短语）"}
+        try:
+            limit = max(1, min(20, int(arguments.get("limit") or 5)))
+        except (TypeError, ValueError):
+            limit = 5
+
+        phrases, like_terms = _split_query(query)
+        found: dict[int, dict] = {}
+
+        with _connect(self.store.db_path) as conn:
+            if phrases:
+                rows = conn.execute(
+                    "SELECT m.id, m.role, m.content, m.created_at, s.title AS session_title"
+                    " FROM messages_fts f"
+                    " JOIN messages m ON m.id = f.rowid"
+                    " JOIN sessions s ON s.id = m.session_id"
+                    " WHERE messages_fts MATCH ? AND m.role IN ('user','assistant')"
+                    " ORDER BY m.created_at DESC LIMIT ?",
+                    (" OR ".join(phrases), limit),
+                ).fetchall()
+                for r in rows:
+                    found[r["id"]] = self._history_item(r)
+            if like_terms and len(found) < limit:
+                cond = " OR ".join("m.content LIKE ?" for _ in like_terms)
+                rows = conn.execute(
+                    "SELECT m.id, m.role, m.content, m.created_at, s.title AS session_title"
+                    " FROM messages m JOIN sessions s ON s.id = m.session_id"
+                    f" WHERE m.role IN ('user','assistant') AND ({cond})"
+                    " ORDER BY m.created_at DESC LIMIT ?",
+                    [f"%{t}%" for t in like_terms] + [limit],
+                ).fetchall()
+                for r in rows:
+                    if r["id"] not in found:
+                        found[r["id"]] = self._history_item(r)
+        items = sorted(found.values(), key=lambda x: x["time"], reverse=True)[:limit]
+        return {"ok": True, "count": len(items), "items": items}
+
+    @staticmethod
+    def _history_item(r: sqlite3.Row) -> dict:
+        from datetime import datetime as _dt
+
+        try:
+            when = _dt.fromtimestamp(r["created_at"]).strftime("%Y-%m-%d %H:%M")
+        except (TypeError, OSError, ValueError):
+            when = "时间未知"
+        return {
+            "session": r["session_title"] or "（无标题会话）",
+            "role": r["role"],
+            "time": when,
+            "snippet": (r["content"] or "")[:160],
+        }
 
     def _create(self, arguments: dict) -> dict:
         kind = str(arguments.get("kind") or "").strip()

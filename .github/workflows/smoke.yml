@@ -1,6 +1,6 @@
 name: smoke
 
-# 每次 push / PR 自动跑一遍单元测试（31 项）+ 冒烟测试（32 项）。
+# 每次 push / PR 自动跑一遍全部单元测试（106 项）+ 冒烟测试。
 # 目的：README 上写的「全部通过」不再是一句需要相信作者的话，而是每次都由机器重跑。
 
 # 踩过的坑（Windows 分支）：
@@ -34,8 +34,8 @@ jobs:
       - name: Dependencies
         run: python --version
 
-      - name: Unit tests (31)
+      - name: Unit tests (106)
         run: python -m unittest discover -s tests
 
-      - name: Smoke tests (32)
+      - name: Smoke tests
         run: python scripts/smoke_test.py
