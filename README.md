@@ -1,7 +1,7 @@
 # Personal AI
 
+[![tests](https://github.com/gangrenboqe/personal-ai/actions/workflows/test.yml/badge.svg)](https://github.com/gangrenboqe/personal-ai/actions/workflows/test.yml)
 
-[![tests](https://github.com/gangrenboqe/personal-ai/actions/workflows/smoke.yml/badge.svg)](https://github.com/gangrenboqe/personal-ai/actions/workflows/smoke.yml)
 > 我的统一 AI 入口与个人 AI 数据层。
 > History、Memory、Task、项目上下文**属于我本人**，不属于任何一家模型；
 > Model / Agent / Provider **三层都可以替换**。
@@ -410,6 +410,42 @@ python -m personal_ai --once "你好"
 用 Python 标准库写 SSE（Server-Sent Events，服务端事件流）时，
 `BaseHTTPRequestHandler` 默认 HTTP/1.0，若响应头声明 `Connection: keep-alive`，
 客户端会一直等结束标记而挂起。修复：流式响应显式 `self.close_connection = True`。
+
+---
+
+## MCP Server：让别的 AI 客户端用你的记忆层（2026-11-05）
+
+`mcp_server.py` 把记忆层以 **MCP（Model Context Protocol，2024-11-05 版）** 暴露出去——
+JSON-RPC 2.0 over stdio，**标准库手写，零第三方依赖**（不用官方 SDK）。
+任何支持 MCP 的客户端（Claude Desktop / Cursor / Trae 等）配一行即可连上，
+用 `memory_create` / `memory_search` / `memory_list` / `history_search` 四个工具记东西、查东西。
+工具说明（含 kind 判据与"不要记短期提醒"规则）直接复用记忆层 schema，与 personal-ai 内部完全一致。
+
+**装在哪（配置示例）** —— Claude Desktop（`claude_desktop_config.json`）：
+
+```json
+{
+  "mcpServers": {
+    "personal-ai-memory": {
+      "command": "python",
+      "args": ["E:\\DSHPersonalAI\\mcp_server.py"],
+      "env": { "PAI_DB_PATH": "E:\\DSHPersonalAI\\data\\personal_ai.db" }
+    }
+  }
+}
+```
+
+Cursor / Trae 的 MCP 配置文件（`.cursor/mcp.json` 或工作区 `.trae/mcp.json`）写同样的结构。
+**怎么改路径**：`PAI_DB_PATH` 指向你想用的 SQLite 文件；不设则用 `<仓根>/data/personal_ai.db`。
+**怎么验证连上了**：配置后重启客户端，问一句「列出我的记忆」——能调出 `memory_list` 并返回条目即通。
+
+**验证状态（如实）**：
+
+- 协议层全链路已验证：子进程真实 stdio 管道测试 6 项（握手 / 通知静默 / 列工具含判据 /
+  create 后库 +1 / search 查回 / list 与错误码 -32601·-32602），`python -m unittest tests.test_mcp_server`。
+- **真实客户端连接未验证**：本机无 Claude Desktop；`.cursor/mcp.json` 属用户全局配置
+  （本会话权限不允许写入）；Trae 的 `mcp.json` 在只读工作区目录。协议层等价于客户端会话，
+  但"在真实客户端里看到记忆内容"这一步**未验证**，装好后按上面"怎么验证"一步即可确认。
 
 ---
 

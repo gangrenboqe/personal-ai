@@ -629,6 +629,28 @@ class MemoryToolExecutor:
                     limit = 5
                 hits = self.store.search(str(arguments.get("query") or ""), limit=limit)
                 return {"ok": True, "count": len(hits), "items": hits}
+            if name == "memory_list":
+                """MCP 暴露用（39 号）：按 kind 过滤列出记忆，无 kind 则全部。"""
+                raw_limit = arguments.get("limit") or 20
+                try:
+                    limit = max(1, min(50, int(raw_limit)))
+                except (TypeError, ValueError):
+                    limit = 20
+                kind = str(arguments.get("kind") or "").strip()
+                sql = (
+                    "SELECT path, kind, source, written_at, verified_at,"
+                    " substr(content, 1, 160) AS snippet"
+                    " FROM memories WHERE deleted_at IS NULL"
+                )
+                params: list = []
+                if kind:
+                    sql += " AND kind = ?"
+                    params.append(kind)
+                sql += " ORDER BY written_at DESC LIMIT ?"
+                params.append(limit)
+                with _connect(self.store.db_path) as conn:
+                    rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+                return {"ok": True, "count": len(rows), "items": rows}
             if name == "history_search":
                 return self._history_search(arguments)
             return {"ok": False, "error": f"未知工具: {name}"}
