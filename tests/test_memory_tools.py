@@ -160,8 +160,8 @@ class TestExecutorQuery(TempDB):
         self.assertTrue(any("trigram" in it["content"] for it in s["items"]))
 
     def test_15_unknown_tool(self):
-        """15 未知工具名回填错误。"""
-        r = self.exec_.execute("memory_delete", {})
+        """15 未知工具名回填错误（memory_delete 自 40 号起是真实工具，样本改用不存在名）。"""
+        r = self.exec_.execute("memory_horizon", {})
         self.assertFalse(r["ok"])
         self.assertIn("未知工具", r["error"])
 

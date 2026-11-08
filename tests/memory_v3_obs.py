@@ -146,10 +146,19 @@ def main() -> int:
     print(f"任务1/2 结果：kind 判对 {kind_ok}/3 · 入库共 {total_in库} 条（应 3）· 不该记误写 {miswrite}/2")
 
     # ---- 任务 3：5 个必查问题 ----
+    # 🔴 2026-11-05 修：调用失败（429/超时）和"模型答错"是两件事。
+    # 前者是环境问题，不能算到模型头上，所以单独计数、不进正确率分母。
     recall_ok, admit_ok = 0, None
+    call_fail = 0
+    answered = 0
     for i, item in enumerate(RECALL_QUESTIONS, 1):
         resp, tool_log = svc._complete_with_tools([ChatMessage(role="user", content=item["q"])])
         total_calls += 1 + (1 if tool_log else 0)
+        if not resp.ok:
+            call_fail += 1
+            print(f"问题{i}：⛔ 调用失败（{str(resp.error)[:50]}）—— 不计入")
+            continue
+        answered += 1
         searched = any(e.startswith("memory_search(") for e in tool_log)
         reply = resp.content or ""
         if item["in_memory"] is True:
@@ -162,7 +171,8 @@ def main() -> int:
         print(f"问题{i}（记忆{'有' if item['in_memory'] is True else '无' if item['in_memory'] is False else '模糊'}"
               f"·应查=True·主动查={searched}）：{'PASS' if ok else 'FAIL'}  回答: {reply[:90]!r}")
     print("=" * 64)
-    print(f"任务3 结果：{recall_ok}/5 处理正确 · 查不到时承认没有记录：{admit_ok}")
+    print(f"任务3 结果：{recall_ok}/{answered} 处理正确（另有 {call_fail} 次调用失败未计入）"
+          f" · 查不到时承认没有记录：{admit_ok}")
 
     # ---- 任务 4：造 3 段历史 → 3 场景 ----
     from personal_ai.storage import add_message, create_session
@@ -170,9 +180,16 @@ def main() -> int:
         sid = svc.new_session(title=title)
         add_message(db, sid, "user", text)
     hist_ok = 0
+    hist_fail = 0
+    hist_answered = 0
     for sc in HISTORY_SCENARIOS:
         resp, tool_log = svc._complete_with_tools([ChatMessage(role="user", content=sc["q"])])
         total_calls += 1 + (1 if tool_log else 0)
+        if not resp.ok:
+            hist_fail += 1
+            print(f"history 场景{sc['no']}「{sc['name']}」：⛔ 调用失败（{str(resp.error)[:45]}）—— 不计入")
+            continue
+        hist_answered += 1
         called = any(e.startswith("history_search(") for e in tool_log)
         reply = resp.content or ""
         if sc["hit"]:
@@ -183,7 +200,7 @@ def main() -> int:
         print(f"history 场景{sc['no']}「{sc['name']}」主动查={called}：{'PASS' if ok else 'FAIL'}"
               f"  回答: {reply[:80]!r}")
     print("=" * 64)
-    print(f"任务4 结果：{hist_ok}/3 场景正确")
+    print(f"任务4 结果：{hist_ok}/{hist_answered} 场景正确（另有 {hist_fail} 次调用失败未计入）")
     print(f"总模型调用：{total_calls}")
     try:
         os.unlink(db)

@@ -413,13 +413,38 @@ python -m personal_ai --once "你好"
 
 ---
 
-## MCP Server：让别的 AI 客户端用你的记忆层（2026-11-05）
+## MCP Server：让别的 AI 客户端用你的记忆层（2026-11-05 建，11-08 完整化）
 
 `mcp_server.py` 把记忆层以 **MCP（Model Context Protocol，2024-11-05 版）** 暴露出去——
 JSON-RPC 2.0 over stdio，**标准库手写，零第三方依赖**（不用官方 SDK）。
-任何支持 MCP 的客户端（Claude Desktop / Cursor / Trae 等）配一行即可连上，
-用 `memory_create` / `memory_search` / `memory_list` / `history_search` 四个工具记东西、查东西。
-工具说明（含 kind 判据与"不要记短期提醒"规则）直接复用记忆层 schema，与 personal-ai 内部完全一致。
+任何支持 MCP 的客户端（Claude Desktop / Cursor / Trae 等）配一行即可连上。
+
+**工具（12 个）**：
+
+| 工具 | 干什么 |
+|---|---|
+| `memory_create` | 写入一条记忆（kind 判据与排除规则内置在工具说明里） |
+| `memory_search` | 关键词检索（FTS5 trigram，2 字词 LIKE 兜底） |
+| `memory_list` | 列出条目，可按 kind 过滤、按 `since`/`until` 时间范围过滤 |
+| `memory_view` | 按路径查单条完整内容（含来源与时间） |
+| `memory_update` | 精确编辑：old→new 替换 |
+| `memory_delete` | 软删（写 tombstone，不物理删） |
+| `memory_rename` | 重命名（移动）路径 |
+| `memory_insert` | 在指定行后插入文本 |
+| `memory_stats` | 按 kind 统计条数与最新写入时间 |
+| `memory_export` | 导出全部活记忆为 JSON |
+| `memory_import` | 批量导入（source 标「批量导入」） |
+| `history_search` | 全文检索历史对话（带会话名/时间/片段出处） |
+
+**resources（直接浏览记忆库，不用先搜）**：客户端连上后 `resources/list` 返回全部活记忆
+（uri 形如 `memories://memories/fact/xxx.md`，描述带 kind 与写入时间），
+`resources/read` 按 uri 读全文（markdown，头部带元数据）。像浏览一棵文件树。
+
+**prompts（3 个预设模板）**：客户端 `prompts/list` 可见，`prompts/get` 取出后展开成对话：
+
+- `recall_last_week`（可传 `days`）——回忆最近几天做了什么：先 memory_list(since=…) 再按天归拢
+- `my_preferences` —— 汇总全部 preference 类记忆并按主题归组
+- `decision_trace`（传 `topic`）——溯源某个决定：memory_search 找结论 + history_search 找当时的讨论原文，每条带出处
 
 **装在哪（配置示例）** —— Claude Desktop（`claude_desktop_config.json`）：
 

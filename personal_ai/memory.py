@@ -646,11 +646,71 @@ class MemoryToolExecutor:
                 if kind:
                     sql += " AND kind = ?"
                     params.append(kind)
+                # 时间范围过滤（written_at 是 ISO8601 文本，可直接字符串比较）
+                since = str(arguments.get("since") or "").strip()
+                until = str(arguments.get("until") or "").strip()
+                if since:
+                    sql += " AND written_at >= ?"
+                    params.append(since)
+                if until:
+                    sql += " AND written_at <= ?"
+                    params.append(until)
                 sql += " ORDER BY written_at DESC LIMIT ?"
                 params.append(limit)
                 with _connect(self.store.db_path) as conn:
                     rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
                 return {"ok": True, "count": len(rows), "items": rows}
+            if name == "memory_update":
+                """精确编辑：old→new（复用 str_replace，FTS 同步更新）。"""
+                path = str(arguments.get("path") or "")
+                self.store.str_replace(path, str(arguments.get("old") or ""), str(arguments.get("new") or ""))
+                return {"ok": True, "path": path, "message": "已更新"}
+            if name == "memory_delete":
+                """软删：写 deleted_at，不物理删除（29 号语义）。"""
+                path = str(arguments.get("path") or "")
+                self.store.delete(path)
+                return {"ok": True, "path": path, "message": "已软删（tombstone 保留）"}
+            if name == "memory_rename":
+                old = str(arguments.get("old") or "")
+                new = str(arguments.get("new") or "")
+                self.store.rename(old, new)
+                return {"ok": True, "path": new, "message": f"已从 {old} 重命名"}
+            if name == "memory_insert":
+                path = str(arguments.get("path") or "")
+                self.store.insert(path, str(arguments.get("text") or ""), arguments.get("after"))
+                return {"ok": True, "path": path, "message": "已插入"}
+            if name == "memory_stats":
+                """按 kind 统计（只读，39/40 号先例：executor 直连 SQL 不算改核心）。"""
+                with _connect(self.store.db_path) as conn:
+                    rows = [dict(r) for r in conn.execute(
+                        "SELECT kind, COUNT(*) AS count, MAX(written_at) AS latest"
+                        " FROM memories WHERE deleted_at IS NULL GROUP BY kind ORDER BY count DESC"
+                    ).fetchall()]
+                total = sum(r["count"] for r in rows)
+                return {"ok": True, "total": total, "by_kind": rows}
+            if name == "memory_export":
+                with _connect(self.store.db_path) as conn:
+                    rows = [dict(r) for r in conn.execute(
+                        "SELECT path, kind, content, source, written_at, verified_at"
+                        " FROM memories WHERE deleted_at IS NULL ORDER BY path"
+                    ).fetchall()]
+                return {"ok": True, "count": len(rows), "items": rows}
+            if name == "memory_import":
+                """批量导入：items=[{kind,title,content},...]，source 标「批量导入」。"""
+                items = arguments.get("items")
+                if not isinstance(items, list) or not items:
+                    return {"ok": False, "error": "items 必须是非空数组，元素含 kind/title/content"}
+                imported, failed = 0, []
+                for i, item in enumerate(items):
+                    if not isinstance(item, dict):
+                        failed.append({"index": i, "error": "元素不是对象"})
+                        continue
+                    r = self._create(item, source="批量导入")
+                    if r.get("ok"):
+                        imported += 1
+                    else:
+                        failed.append({"index": i, "error": r.get("error")})
+                return {"ok": True, "imported": imported, "failed": failed}
             if name == "history_search":
                 return self._history_search(arguments)
             return {"ok": False, "error": f"未知工具: {name}"}
@@ -718,7 +778,7 @@ class MemoryToolExecutor:
             "snippet": (r["content"] or "")[:160],
         }
 
-    def _create(self, arguments: dict) -> dict:
+    def _create(self, arguments: dict, source: str = MEMORY_SOURCE_AUTO) -> dict:
         kind = str(arguments.get("kind") or "").strip()
         title = str(arguments.get("title") or "").strip()
         content = str(arguments.get("content") or "").strip()
@@ -729,5 +789,5 @@ class MemoryToolExecutor:
         if not content:
             return {"ok": False, "error": "content 必填（记忆正文）"}
         path = f"/memories/{kind}/{_slugify(title)}.md"
-        new_id = self.store.create(path, content, kind, MEMORY_SOURCE_AUTO)
+        new_id = self.store.create(path, content, kind, source)
         return {"ok": True, "id": new_id, "path": path}
