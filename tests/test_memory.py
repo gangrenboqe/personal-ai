@@ -28,6 +28,8 @@ from personal_ai.core.chat import ChatService
 from personal_ai.memory import (
     MemoryCommandError,
     MemoryStore,
+    _clip_entry,
+    _split_query,
     build_context_block,
     ensure_tables,
 )
@@ -559,6 +561,49 @@ class TestMigrateCLI(unittest.TestCase):
                     break
                 except PermissionError:
                     gc.collect()
+
+
+class TestSplitQueryAndClip(unittest.TestCase):
+    """43-batch 关键路径补测：查询分段与注入限长是「悄悄坏掉不报错」的典型
+    ——坏的时候不抛异常，只是搜不到 / 注入被截断。此前零直测。"""
+
+    def test_01_windows_and_bigrams(self):
+        """4 字中文段：3 字滑窗成 FTS 短语（带引号），2 字滑窗成 LIKE 兜底词。"""
+        phrases, like_terms = _split_query("回答风格")
+        self.assertEqual(phrases, ['"回答风"', '"答风格"'])
+        self.assertEqual(like_terms, ["回答", "答风", "风格"])
+
+    def test_02_windows_never_cross_punctuation(self):
+        """滑窗不许跨标点：跨了会把不相邻的字拼成查询词（静默搜错）。"""
+        phrases, like_terms = _split_query("数据库，选型！")
+        self.assertEqual(phrases, ['"数据库"'])          # 「库选」不得同窗
+        self.assertEqual(like_terms, ["数据", "据库", "选型"])  # LIKE 词同样不跨标点
+
+    def test_03_single_char_query_returns_empty_gracefully(self):
+        """1 字查询（trigram 与 LIKE 都够不着）：返回空且不抛异常，search 因此返回 []。"""
+        phrases, like_terms = _split_query("A")
+        self.assertEqual(phrases, [])
+        self.assertEqual(like_terms, [])
+
+    def test_04_clip_short_unchanged(self):
+        """不超限长的原文原样返回（不补省略号）。"""
+        self.assertEqual(_clip_entry("简短记忆"), "简短记忆")
+
+    def test_05_clip_chinese_hard_cut(self):
+        """中文超限长：按字符硬截，末尾补省略号。"""
+        text = "记" * (200 + 30)
+        out = _clip_entry(text, max_chars=200)
+        self.assertEqual(len(out), 200 + 1)       # 200 字 + …
+        self.assertTrue(out.endswith("…"))
+
+    def test_06_clip_english_word_boundary(self):
+        """英文超限长：回退到最后一个空格，不切断单词（碎片 ≤30 字符时）。"""
+        head = "word " * 39                        # 195 字符，全是完整词
+        tail = "abcdefghij"                        # 10 字符长词，会被截成碎片
+        out = _clip_entry(head + tail, max_chars=200)
+        self.assertTrue(out.endswith("…"))
+        self.assertTrue(out.endswith("word…"))     # 回退到了最后一个空格
+        self.assertNotIn("abcdefghij", out)        # 长词没有以碎片形式留下
 
 
 if __name__ == "__main__":

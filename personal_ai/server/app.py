@@ -76,7 +76,7 @@ class Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             return {}
 
-    def log_message(self, fmt: str, *args) -> None:  # 精简日志
+    def log_message(self, fmt: str, *args: object) -> None:  # 精简日志
         print(f"  {self.command} {self.path} -> {args[1] if len(args) > 1 else ''}")
 
     def do_OPTIONS(self) -> None:

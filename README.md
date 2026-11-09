@@ -62,8 +62,18 @@ Key 只存在于进程内，不写入任何文件。
 ```bash
 python -m personal_ai --status                 # 查看当前 provider 与配置
 python -m personal_ai --once "你好"             # 单次问答并打印真实调用链
-python scripts/smoke_test.py                   # 冒烟测试（21 项）
+python scripts/smoke_test.py                   # 冒烟测试（32 项，自动拉起 mock 服务）
 ```
+
+### 五分钟复现（从 clone 到看到效果）
+
+```bash
+git clone https://github.com/gangrenboqe/personal-ai.git && cd personal-ai
+python -m unittest discover -s tests    # 151 项单元测试全绿（约 6 秒）
+python demo.py                          # mock 三步演示：问答 → 写记忆 → 检索注入（无需 API key）
+python scripts/smoke_test.py            # 自动拉起服务跑 32 项冒烟，结束自动退出
+```
+三条命令零第三方依赖，Python 3.9+ 可跑（本机 3.11 实测）。
 
 ### 接一个真实模型
 
@@ -297,7 +307,7 @@ v1 是"程序写、模型读"；v2 把 `memory_create / memory_view / memory_sea
 - **已知弱点**：① kind 粒度会判错（fact → preference）；② 短期提醒会被当长期记忆写入——两者都需要 v3 加约束，本单不修。
 - **流式路径（/api/chat/stream）没有工具**：v2 只在 `send()`（非流式）生效。
 - **view/search 的自主使用未观察**：实验库是空的，模型无从检索；"读了记忆再回答"的闭环要 v3 验证。
-- 测试：`python -m unittest discover -s tests` → 99 项全绿（含 agent loop 回填/错误回填/2 轮上限 3 项专测）。
+- 测试：`python -m unittest discover -s tests` → 151 项全绿（含 agent loop 回填/错误回填/2 轮上限 3 项专测）。
 
 ---
 

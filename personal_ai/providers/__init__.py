@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+from ..config import Config
 from .base import ChatMessage, ChatResponse, ProviderBase
 from .mock import MockProvider
 from .openai_compat import OpenAICompatProvider
@@ -29,13 +30,13 @@ def available() -> list[str]:
     return sorted(_REGISTRY.keys())
 
 
-def create(name: str, config) -> ProviderBase:
+def create(name: str, config: Config) -> ProviderBase:
     if name not in _REGISTRY:
         raise KeyError(f"未知 provider: {name}。可选：{available()}")
     return _REGISTRY[name](config)
 
 
-def describe_all(config) -> list[dict]:
+def describe_all(config: Config) -> list[dict]:
     return [cls(config).describe() for cls in _REGISTRY.values()]
 
 

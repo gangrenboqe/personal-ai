@@ -33,6 +33,7 @@ import json
 import os
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -456,7 +457,7 @@ def _rpc_error(req_id, code: int, message: str) -> str:
     )
 
 
-def make_handler(executor: MemoryToolExecutor):
+def make_handler(executor: MemoryToolExecutor) -> Callable[[dict], str | None]:
     """构造 dispatch(req) -> str | None（None 表示通知类消息，不回复）。"""
     store = executor.store
 
@@ -481,7 +482,7 @@ def make_handler(executor: MemoryToolExecutor):
             "text": header + (row.get("content") or ""),
         }
 
-    def dispatch(req: dict):  # noqa: ANN202
+    def dispatch(req: dict) -> str | None:
         method = str(req.get("method") or "")
         req_id = req.get("id")
         params = req.get("params") if isinstance(req.get("params"), dict) else {}

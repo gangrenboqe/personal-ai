@@ -29,7 +29,7 @@ class TaskService:
             raise ValueError("任务标题不能为空")
         return create_task(self.config.db_path, title=title, note=note, status=status, due_at=due_at)
 
-    def update(self, task_id: str, **fields) -> bool:
+    def update(self, task_id: str, **fields: str | float | None) -> bool:
         return update_task(self.config.db_path, task_id, **fields)
 
     def delete(self, task_id: str) -> bool:

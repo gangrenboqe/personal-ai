@@ -189,7 +189,7 @@ def list_tasks(db_path: str, status: str | None = None, limit: int = 200) -> lis
     ]
 
 
-def update_task(db_path: str, task_id: str, **fields) -> bool:
+def update_task(db_path: str, task_id: str, **fields: str | float | None) -> bool:
     allowed = {"title", "status", "note", "due_at"}
     patch = {k: v for k, v in fields.items() if k in allowed}
     if not patch:

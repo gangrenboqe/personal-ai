@@ -12,6 +12,7 @@ import json
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterator
 from urllib.parse import urlparse
 
 from .base import ChatMessage, ChatResponse, ProviderBase
@@ -160,7 +161,7 @@ class OpenAICompatProvider(ProviderBase):
             False,
         )
 
-    def stream(self, messages: list[ChatMessage]):
+    def stream(self, messages: list[ChatMessage]) -> Iterator[str]:
         """SSE（Server-Sent Events，服务端事件流）流式返回文本增量。
 
         SSE 是什么：服务端可以一小段一小段地把内容推给浏览器，

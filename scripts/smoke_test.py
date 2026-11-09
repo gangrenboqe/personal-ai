@@ -22,7 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PASS, FAIL = "PASS", "FAIL"
 
 
-def request(method: str, url: str, payload: dict | None = None, timeout: int = 10):
+def request(method: str, url: str, payload: dict | None = None,
+            timeout: int = 10) -> tuple[int, dict]:
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     req = urllib.request.Request(
         url,

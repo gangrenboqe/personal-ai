@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -65,7 +66,7 @@ class ProviderBase(ABC):
     def default_chain(self) -> list[str]:
         """该 Provider 默认的来源链（不含模型名）。"""
 
-    def stream(self, messages: list[ChatMessage]):
+    def stream(self, messages: list[ChatMessage]) -> Iterator[str]:
         """流式返回文本增量。
 
         默认实现：把非流式结果一次性吐出，保证所有 Provider 都支持 stream()。

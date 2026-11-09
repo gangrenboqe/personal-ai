@@ -30,7 +30,7 @@ def get_memory_dir() -> Path:
     return Path(env).expanduser() if env else Path(__file__).resolve().parent
 
 
-def resolve_memory_dir(base=None) -> Path:
+def resolve_memory_dir(base: str | Path | None = None) -> Path:
     """校验记忆目录存在并返回绝对路径；不存在抛 FileNotFoundError（不静默返回空）。"""
     base = Path(base).expanduser() if base else get_memory_dir()
     if not base.is_dir():
@@ -39,7 +39,9 @@ def resolve_memory_dir(base=None) -> Path:
 
 # ---------- 扫描范围 ----------
 
-def collect(base=None):
+def collect(
+    base: str | Path | None = None,
+) -> tuple[list[tuple[str, Path]], dict[str, int]]:
     """返回 ([(显示路径, Path)], 分类计数)。显示路径相对于记忆目录。"""
     base = resolve_memory_dir(base)
     files, counts = [], {}
@@ -68,7 +70,7 @@ _BIGRAM_STOP = {
     "定的", "怎么定", "是不是", "有没有", "咱们", "你们", "他们", "还是说",
 }
 
-def make_terms(q):
+def make_terms(q: str) -> list[tuple[str, float]]:
     """把查询串切成 (词, 权重) 列表。ASCII 词原样；中文整段（≤6 字）+ 二元组。"""
     terms = {}
     def put(t, w):
@@ -89,7 +91,7 @@ def make_terms(q):
             put(g, 2.0)
     return list(terms.items())
 
-def score_line(line, terms):
+def score_line(line: str, terms: list[tuple[str, float]]) -> tuple[float, int]:
     """返回 (得分, 命中的不同词数)。多词齐中的行在 search() 里排前面。"""
     ll = line.lower()
     s = 0.0
@@ -101,7 +103,11 @@ def score_line(line, terms):
             n += 1
     return s, n
 
-def search(terms, files):
+def search(
+    terms: list[tuple[str, float]],
+    files: list[tuple[str, Path]],
+) -> list[tuple[float, str, int, str]]:
+    """检索排序：返回 [(相关度, 显示路径, 行号, 原文行)]，多词齐中优先、分数次之。"""
     hits = []
     for rel, p in files:
         try:
@@ -120,7 +126,7 @@ def search(terms, files):
 
 REF = re.compile(r"(?P<path>[^\s『；]+\.md)[ \t]+L(?P<no>\d+)『(?P<snip>[^』]+)』")
 
-def resolve(path_str, base=None):
+def resolve(path_str: str, base: str | Path | None = None) -> Path | None:
     """把 LOOKUP 里的相对路径解析成真实文件；找不到返回 None。"""
     base = resolve_memory_dir(base)
     p = Path(path_str.replace("\\", "/"))
@@ -132,7 +138,7 @@ def resolve(path_str, base=None):
             return cand
     return None
 
-def rebuild(base=None):
+def rebuild(base: str | Path | None = None) -> None:
     base = resolve_memory_dir(base)
     lookup = base / "LOOKUP.md"
     text = lookup.read_text(encoding="utf-8")
@@ -177,7 +183,7 @@ def rebuild(base=None):
 
 # ---------- 主入口 ----------
 
-def main():
+def main() -> None:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
