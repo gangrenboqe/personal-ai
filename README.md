@@ -413,13 +413,13 @@ python -m personal_ai --once "你好"
 
 ---
 
-## MCP Server：让别的 AI 客户端用你的记忆层（2026-11-05 建，11-08 完整化）
+## MCP Server：让别的 AI 客户端用你的记忆层（2026-11-05 建，11-08 完整化，11-09 接入文件层）
 
 `mcp_server.py` 把记忆层以 **MCP（Model Context Protocol，2024-11-05 版）** 暴露出去——
 JSON-RPC 2.0 over stdio，**标准库手写，零第三方依赖**（不用官方 SDK）。
 任何支持 MCP 的客户端（Claude Desktop / Cursor / Trae 等）配一行即可连上。
 
-**工具（12 个）**：
+**工具（16 个 = 记忆库 12 + 文件层 4）**：
 
 | 工具 | 干什么 |
 |---|---|
@@ -435,6 +435,26 @@ JSON-RPC 2.0 over stdio，**标准库手写，零第三方依赖**（不用官�
 | `memory_export` | 导出全部活记忆为 JSON |
 | `memory_import` | 批量导入（source 标「批量导入」） |
 | `history_search` | 全文检索历史对话（带会话名/时间/片段出处） |
+| `journal_search` | **文件层**全文检索：工作日志 + topics/ + LOOKUP.md 问题目录 + index/，返回「相对路径+行号+原文行+相关度」指针（42 号） |
+| `journal_read` | **文件层**按指针读原文上下文（默认前后各 10 行，行首带 L 行号），路径越界拒绝（42 号） |
+| `topic_list` | **文件层**列出 topics/ 主题归档文件（42 号） |
+| `topic_read` | **文件层**读一个主题归档全文（42 号） |
+
+**AI 怎么用（文件层两步法，42 号）**：要查「历史上某件事」时——
+先 `journal_search`（如 query「Manus 面试」）拿指针列表（41 个文件毫秒级；搜不到返回空列表，不编造），
+再 `journal_read(path, line)` 按指针读原文上下文——**拿的是日志原文，不是摘要**。
+检索逻辑与 `.workbuddy/memory/查记忆.py` 命令行是同一套（动态加载，不复制第二套口径）。
+🔴 路径边界：`journal_read`/`topic_read` 的路径解析后必须落在记忆目录内，`../../` 一律回
+-32602「路径越界」；记忆目录由 `PAI_MEMORY_DIR` 指定（与 查记忆.py 共用一套解析），
+缺省 `<仓根>/.workbuddy/memory`；目录不存在回 -32602「记忆目录不存在：<路径>」，不静默返回空。
+
+> ⚠️ **公开仓不包含 `.workbuddy/`**：那是本机私有的日志目录，按隐私边界不进公开仓库。
+> 所以 `clone` 下来直接跑时，**记忆库那 12 个工具可用**（落 `data/` 下的 SQLite）；
+> **文件层那 4 个工具会回 -32602「记忆目录不存在」**——这是预期行为，不是故障。
+>
+> 想用文件层：把 `PAI_MEMORY_DIR` 指向**你自己的日志目录**即可。检索脚本
+> `查记忆.py` 已随仓提供（仓根一份），**你不需要自己写脚本**，只要目录里有
+> `YYYY-MM-DD.md` 的日档和 `topics/`。
 
 **resources（直接浏览记忆库，不用先搜）**：客户端连上后 `resources/list` 返回全部活记忆
 （uri 形如 `memories://memories/fact/xxx.md`，描述带 kind 与写入时间），
@@ -466,8 +486,13 @@ Cursor / Trae 的 MCP 配置文件（`.cursor/mcp.json` 或工作区 `.trae/mcp.
 
 **验证状态（如实）**：
 
-- 协议层全链路已验证：子进程真实 stdio 管道测试 6 项（握手 / 通知静默 / 列工具含判据 /
-  create 后库 +1 / search 查回 / list 与错误码 -32601·-32602），`python -m unittest tests.test_mcp_server`。
+- 协议层全链路已验证：子进程真实 stdio 管道测试 22 项（`python -m unittest tests.test_mcp_server`）
+  ——14 项记忆库（握手 / 通知静默 / 列工具含判据 / create 后库 +1 / search 查回 / 错误码 -32601·-32602 等）
+  + 8 项文件层（42 号：中文命中 / 查不到返回空 / 读到原文 / 行号越界 / 路径逃逸被拒 /
+  目录不存在报错 / topic_list·topic_read / 上下文裁剪；**样本全部在临时目录现造，不含真实日志**）。
+- 文件层手工管道实测（真实记忆目录）：journal_search「Manus 面试」第一条命中 LOOKUP.md:56
+  并带回 11-04 面试结束、10-29 纠正等出处；journal_read 返回日志原文；`../../` 被拒；
+  stderr 仅启动/退出两行，stdout 零污染。
 - **真实客户端连接未验证**：本机无 Claude Desktop；`.cursor/mcp.json` 属用户全局配置
   （本会话权限不允许写入）；Trae 的 `mcp.json` 在只读工作区目录。协议层等价于客户端会话，
   但"在真实客户端里看到记忆内容"这一步**未验证**，装好后按上面"怎么验证"一步即可确认。

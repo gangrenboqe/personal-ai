@@ -8,7 +8,9 @@ JSON-RPC 2.0 over stdio，零第三方依赖（标准库手写，不用官方 SD
 - 每条响应写完必须 flush，否则客户端收不到。
 
 能力：
-- tools：12 个（memory_create/search/list/view/update/delete/rename/insert/stats/export/import + history_search）
+- tools：16 个 = 记忆库 12 个（memory_create/search/list/view/update/delete/rename/insert/stats/export/import + history_search）
+  + 文件层 4 个（journal_search/journal_read/topic_list/topic_read，42 号：复用记忆目录里
+  查记忆.py 的检索逻辑——分词/打分/排序只此一份，不复制第二套）
 - resources：memories://<path> —— 客户端可像浏览文件树一样直接翻记忆库，不用先搜
 - prompts：3 个预设模板（回忆上周 / 我的偏好 / 决定溯源）
 
@@ -17,13 +19,18 @@ JSON-RPC 2.0 over stdio，零第三方依赖（标准库手写，不用官方 SD
 
 运行：python mcp_server.py        （由 MCP 客户端拉起，不需要人工交互）
 配置：PAI_DB_PATH 指定 SQLite 路径，缺省 <仓根>/data/personal_ai.db
+      PAI_MEMORY_DIR 指定记忆目录（journal_* / topic_* 用），缺省 <仓根>/.workbuddy/memory；
+      与 查记忆.py 共用同一套路径解析。目录不存在 → -32602「记忆目录不存在：<路径>」；
+      路径逃逸（解析到记忆目录之外）→ -32602「路径越界」。
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -160,11 +167,233 @@ _NEW_TOOLS = {
     },
 }
 
+# ---- 42 号：文件层四工具（复用记忆目录里 查记忆.py 的检索逻辑，不复制第二套） ----
+
+
+class FileLayerError(Exception):
+    """文件层工具的参数错误：code 为要返回的 JSON-RPC 错误码。"""
+
+    def __init__(self, code: int, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+_chajiyi_mod = None
+
+
+def _memory_dir_guess() -> Path:
+    """记忆目录猜测位置：PAI_MEMORY_DIR 优先，缺省 = mcp_server.py 旁的 .workbuddy/memory。"""
+    env = os.environ.get("PAI_MEMORY_DIR", "").strip()
+    return Path(env).expanduser() if env else ROOT / ".workbuddy" / "memory"
+
+
+def _memory_dir() -> Path:
+    """记忆目录：不存在就抛 FileNotFoundError「记忆目录不存在：<路径>」，不静默返回空。"""
+    base = _memory_dir_guess()
+    if not base.is_dir():
+        raise FileNotFoundError(f"记忆目录不存在：{base}")
+    mod = _chajiyi(base)
+    return mod.resolve_memory_dir(base)  # 与 查记忆.py 共用同一套解析与校验
+
+
+def _chajiyi(memory_dir: Path):
+    """动态加载 查记忆.py（分词/打分/搜索只此一份）。
+
+    优先用记忆目录里的那份；PAI_MEMORY_DIR 单独指定数据目录时允许回退到
+    默认位置（<仓根>/.workbuddy/memory）的检索脚本——代码与数据分离，
+    检索函数全部接受 base 参数，指向哪个记忆目录就扫哪个。
+    """
+    global _chajiyi_mod
+    if _chajiyi_mod is None:
+        path = memory_dir / "查记忆.py"
+        if not path.is_file():
+            # 回退顺序：仓根自带（公开仓用）→ 本机默认记忆目录（开发用）
+            for cand in (ROOT / "查记忆.py", ROOT / ".workbuddy" / "memory" / "查记忆.py"):
+                if cand.is_file():
+                    path = cand
+                    _stderr(f"记忆目录里没有 查记忆.py，回退用: {path}")
+                    break
+            else:
+                raise FileLayerError(-32602, f"记忆目录里没有 查记忆.py：{path}")
+        spec = importlib.util.spec_from_file_location("chajiyi_file_layer", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _chajiyi_mod = mod
+    return _chajiyi_mod
+
+
+def _inside(memory_dir: Path, p: Path) -> bool:
+    try:
+        p.relative_to(memory_dir)
+        return True
+    except ValueError:
+        return False
+
+
+def _tool_journal_search(args: dict) -> dict:
+    base = _memory_dir()
+    mod = _chajiyi(base)
+    query = str(args.get("query") or "").strip()
+    if not query:
+        raise FileLayerError(-32602, "journal_search 需要 query（关键词或整句问题）")
+    try:
+        limit = int(args.get("limit") or 10)
+    except (TypeError, ValueError):
+        limit = 10
+    limit = max(1, min(limit, 50))
+    files, _counts = mod.collect(base)
+    t0 = time.perf_counter()
+    hits = mod.search(mod.make_terms(query), files)
+    elapsed = round(time.perf_counter() - t0, 4)
+    results = [
+        {"path": rel, "line": no, "score": round(sc, 1), "text": line}
+        for sc, rel, no, line in hits[:limit]
+    ]
+    return {
+        "ok": True, "query": query, "scanned_files": len(files),
+        "total_hits": len(hits), "elapsed_s": elapsed, "results": results,
+        "hint": "先拿指针，再 journal_read(path, line) 读原文上下文" if results else "没有命中，换个关键词",
+    }
+
+
+def _tool_journal_read(args: dict) -> dict:
+    base = _memory_dir()
+    rel = str(args.get("path") or "").strip()
+    if not rel:
+        raise FileLayerError(-32602, "journal_read 需要 path（journal_search 返回的相对路径）")
+    rel_norm = rel.replace("\\", "/")
+    if ".." in Path(rel_norm).parts:
+        raise FileLayerError(-32602, f"路径越界：{rel}")
+    p = (base / rel_norm).resolve()
+    if not _inside(base, p):
+        raise FileLayerError(-32602, f"路径越界：{rel}")
+    if not p.is_file():
+        raise FileLayerError(-32602, f"文件不存在：{rel}")
+    lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    total = len(lines)
+    try:
+        line = int(args.get("line"))
+    except (TypeError, ValueError):
+        raise FileLayerError(-32602, "line 必须是整数行号（从 1 起）")
+    if line < 1 or line > total:
+        raise FileLayerError(-32602, f"行号越界：{line} 不在 1~{total}")
+    try:
+        context = int(args.get("context") if args.get("context") is not None else 10)
+    except (TypeError, ValueError):
+        context = 10
+    context = max(0, min(context, 50))
+    lo, hi = max(1, line - context), min(total, line + context)
+    body = "\n".join(f"L{n}: {lines[n - 1]}" for n in range(lo, hi + 1))
+    return {
+        "ok": True, "path": rel, "line": line, "total_lines": total,
+        "range": [lo, hi],
+        "text": f"{rel} 共 {total} 行，读 L{lo}~L{hi}（目标 L{line}）：\n{body}",
+    }
+
+
+def _tool_topic_list(args: dict) -> dict:
+    base = _memory_dir()
+    d = base / "topics"
+    if not d.is_dir():
+        raise FileLayerError(-32602, f"topics 目录不存在：{d}")
+    items = []
+    for p in sorted(d.glob("*.md")):
+        n_lines = len(p.read_text(encoding="utf-8", errors="replace").splitlines())
+        items.append({"name": p.stem, "file": f"topics/{p.name}",
+                      "bytes": p.stat().st_size, "lines": n_lines})
+    return {"ok": True, "count": len(items), "topics": items}
+
+
+def _tool_topic_read(args: dict) -> dict:
+    base = _memory_dir()
+    name = str(args.get("name") or "").strip()
+    if not name:
+        raise FileLayerError(-32602, "topic_read 需要 name（如 求职线 或 topics/求职线.md）")
+    rel = (name if name.endswith(".md") else name + ".md").replace("\\", "/")
+    if rel.startswith("topics/"):
+        rel = rel[len("topics/"):]
+    if ".." in Path(rel).parts or "/" in rel:
+        raise FileLayerError(-32602, f"路径越界：{name}")
+    p = (base / "topics" / rel).resolve()
+    if not _inside(base, p):
+        raise FileLayerError(-32602, f"路径越界：{name}")
+    if not p.is_file():
+        raise FileLayerError(-32602, f"没有这个主题文件：topics/{rel}（用 topic_list 看有哪些）")
+    text = p.read_text(encoding="utf-8", errors="replace")
+    return {"ok": True, "topic": p.stem, "file": f"topics/{p.name}",
+            "bytes": p.stat().st_size, "text": text}
+
+
+_FILE_TOOLS = [
+    {
+        "name": "journal_search",
+        "description": (
+            "在记忆文件层做全文检索：全部工作日志（2026-*.md）+ topics/ 五主题文件 "
+            "+ LOOKUP.md 问题目录 + index/ 时间索引 + MEMORY.md。"
+            "返回文件相对路径、行号、原文行、相关度，默认前 10 条；搜不到返回空列表，不编造。"
+            "用法：先 journal_search 拿「文件+行号」指针，再用 journal_read 读原文上下文。"
+            "检索逻辑与 .workbuddy/memory/查记忆.py 命令行是同一套口径。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string",
+                          "description": "关键词（可空格分隔多个）或整句问题，如「Manus 面试」"},
+                "limit": {"type": "integer", "description": "最多返回几条，默认 10，上限 50"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "journal_read",
+        "description": (
+            "按「文件相对路径 + 行号」读日志/topics 原文上下文（默认前后各 10 行，行首带 L 行号）。"
+            "path 必须落在记忆目录内，越界拒绝（-32602 路径越界）。"
+            "这是把 journal_search 拿到的指针变成原文的工具。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string",
+                         "description": "相对记忆目录的路径，如 2026-11-04.md 或 topics/求职线.md"},
+                "line": {"type": "integer", "description": "目标行号（从 1 起，journal_search 返回的 line）"},
+                "context": {"type": "integer", "description": "前后各读几行，默认 10，上限 50"},
+            },
+            "required": ["path", "line"],
+        },
+    },
+    {
+        "name": "topic_list",
+        "description": "列出 topics/ 目录下的主题归档文件（名字、行数、字节），先看有什么再 topic_read。",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "topic_read",
+        "description": "读一个主题归档文件的全文（topics/ 下，如 求职线 / 协作教训）。"
+                       "name 给主题名即可；带路径成分或越界一律拒绝（-32602）。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"name": {"type": "string",
+                                    "description": "主题名，如 求职线（可带 .md 或 topics/ 前缀）"}},
+            "required": ["name"],
+        },
+    },
+]
+
+_FILE_TOOL_FUNCS = {
+    "journal_search": _tool_journal_search,
+    "journal_read": _tool_journal_read,
+    "topic_list": _tool_topic_list,
+    "topic_read": _tool_topic_read,
+}
+
 MCP_TOOLS = (
     [_from_schema("memory_create"), _from_schema("memory_search"), _NEW_TOOLS["memory_list"],
      _NEW_TOOLS["memory_view"], _NEW_TOOLS["memory_update"], _NEW_TOOLS["memory_delete"],
      _NEW_TOOLS["memory_rename"], _NEW_TOOLS["memory_insert"], _NEW_TOOLS["memory_stats"],
      _NEW_TOOLS["memory_export"], _NEW_TOOLS["memory_import"], _from_schema("history_search")]
+    + _FILE_TOOLS
 )
 _TOOL_NAMES = {t["name"] for t in MCP_TOOLS}
 
@@ -275,7 +504,15 @@ def make_handler(executor: MemoryToolExecutor):
                 arguments = {}
             if name not in _TOOL_NAMES:
                 return _rpc_error(req_id, -32602, f"未知工具: {name}")
-            result = executor.execute(name, arguments)  # 记忆层约定：错误回 {"ok": False}，不抛
+            if name in _FILE_TOOL_FUNCS:  # 42 号：文件层工具，不走 SQLite executor
+                try:
+                    result = _FILE_TOOL_FUNCS[name](arguments)
+                except FileNotFoundError as e:  # 记忆目录不存在
+                    return _rpc_error(req_id, -32602, str(e))
+                except FileLayerError as e:
+                    return _rpc_error(req_id, e.code, e.message)
+            else:
+                result = executor.execute(name, arguments)  # 记忆层约定：错误回 {"ok": False}，不抛
             return _rpc_result(req_id, {
                 "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}],
                 "isError": not bool(result.get("ok", True)),

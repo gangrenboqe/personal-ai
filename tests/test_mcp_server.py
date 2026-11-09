@@ -131,15 +131,16 @@ class TestMcpServer(unittest.TestCase):
             "name": "memory_create",
             "arguments": {"kind": kind, "title": title, "content": content}}})
 
-    def test_07_tools_list_has_twelve(self):
-        """工具扩到 12 个，清单与名字全对。"""
+    def test_07_tools_list_has_sixteen(self):
+        """工具扩到 16 个：记忆库 12 + 文件层 4（journal_search/journal_read/topic_list/topic_read）。"""
         r = self._send(LIST_TOOLS)
         names = {t["name"] for t in r["result"]["tools"]}
-        self.assertEqual(len(names), 12)
+        self.assertEqual(len(names), 16)
         self.assertEqual(names, {
             "memory_create", "memory_search", "memory_list", "memory_view",
             "memory_update", "memory_delete", "memory_rename", "memory_insert",
-            "memory_stats", "memory_export", "memory_import", "history_search"})
+            "memory_stats", "memory_export", "memory_import", "history_search",
+            "journal_search", "journal_read", "topic_list", "topic_read"})
 
     def test_08_view_update_rename_insert_chain(self):
         """查详情 → 编辑 → 改名 → 插入：一条记忆的完整生命周期（除删除）。"""
@@ -265,6 +266,194 @@ class TestMcpServer(unittest.TestCase):
         caps = r["result"]["capabilities"]
         self.assertIn("resources", caps)
         self.assertIn("prompts", caps)
+
+
+# ------------------------------------- 42 号：文件层四工具（临时目录现造样本，零真实日志内容）
+
+_FIXTURE = {
+    "2026-11-01.md": (
+        "# 2026-11-01 测试日志\n"
+        "\n"
+        "## 10:00 曼努斯测试\n"
+        "\n"
+        "- 曼努斯面试结束（21 分钟），面试官说适配度不够。\n"
+        "- 线下会面地点待定。\n"
+    ),
+    "2026-11-02.md": (
+        "# 2026-11-02 测试日志\n"
+        "\n"
+        "## 09:00 例行盘点\n"
+        "\n"
+        "- 今天没有特别的事，只有例行盘点一条。\n"
+    ),
+    "LOOKUP.md": (
+        "# LOOKUP（合成测试数据）\n"
+        "\n"
+        "### 问：曼努斯为什么没过？\n"
+        "→ 2026-11-01.md L5『## 10:00 曼努斯测试』\n"
+        "→ 一句话：适配度不够。\n"
+    ),
+    "MEMORY.md": "# 测试记忆\n\n- 一条合成偏好：喜欢简洁回答。\n",
+    "index/2026-Q4.md": "- 2026-11-01：曼努斯测试结束\n",
+    "topics/求职线.md": "# 求职线（合成测试数据）\n\n## 2026-11-01\n\n- 投了三家合成公司。\n",
+    "topics/技术线.md": "# 技术线（合成测试数据）\n\n- 没有内容。\n",
+}
+
+
+class TestMcpFileLayer(unittest.TestCase):
+    """文件层工具：PAI_MEMORY_DIR 指向临时目录，样本全部现造（不用真实日志，隐私+体积）。"""
+
+    def setUp(self) -> None:
+        self.mem = tempfile.mkdtemp(prefix="pai_mem_")
+        self.outside = tempfile.mkdtemp(prefix="pai_out_")  # 记忆目录之外，验证逃逸被拒
+        for rel, content in _FIXTURE.items():
+            p = Path(self.mem) / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+        (Path(self.outside) / "outside_secret.md").write_text(
+            "这是记忆目录之外的秘密文件", encoding="utf-8")
+        fd, self.db = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self.env = dict(os.environ, PAI_DB_PATH=self.db, PAI_MEMORY_DIR=self.mem,
+                        PYTHONIOENCODING="utf-8")
+        self.proc = subprocess.Popen(
+            [sys.executable, str(SERVER)], stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=self.env, text=True,
+            encoding="utf-8", cwd=str(ROOT))
+
+    def _send(self, req: dict) -> dict | None:
+        self.proc.stdin.write(json.dumps(req) + "\n")
+        self.proc.stdin.flush()
+        if "id" not in req or req.get("id") is None:
+            return None
+        line = self.proc.stdout.readline()
+        return json.loads(line) if line else None
+
+    def tearDown(self) -> None:
+        try:
+            self.proc.stdin.close()
+        except OSError:
+            pass
+        try:
+            self.proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+        gc.collect()
+
+    def _call(self, req_id: int, name: str, arguments: dict) -> dict:
+        return self._send({"jsonrpc": "2.0", "id": req_id, "method": "tools/call",
+                           "params": {"name": name, "arguments": arguments}})
+
+    def test_20_journal_search_chinese_hit(self):
+        """中文关键词命中：结果带 相对路径+行号+原文；日志与 LOOKUP 都命中。"""
+        self._send(LIST_TOOLS)  # 探活：确认子进程 ready
+        r = self._call(200, "journal_search", {"query": "曼努斯 面试"})
+        self.assertNotIn("error", r, r)
+        payload = json.loads(r["result"]["content"][0]["text"])
+        self.assertTrue(payload["ok"])
+        self.assertGreaterEqual(payload["total_hits"], 3)
+        paths = {item["path"] for item in payload["results"]}
+        self.assertIn("2026-11-01.md", paths)
+        self.assertIn("LOOKUP.md", paths)
+        texts = json.dumps(payload["results"], ensure_ascii=False)
+        self.assertIn("面试官说适配度不够", texts)
+        for item in payload["results"]:
+            self.assertIn("line", item) and self.assertIn("text", item)
+
+    def test_21_journal_search_no_hit_returns_empty(self):
+        """查不到返回空列表（ok 仍 True），不编造。"""
+        self._send(LIST_TOOLS)
+        r = self._call(201, "journal_search", {"query": "紫电青霜剑气"})
+        payload = json.loads(r["result"]["content"][0]["text"])
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["results"], [])
+        self.assertEqual(payload["total_hits"], 0)
+
+    def test_22_journal_read_returns_original(self):
+        """按指针读原文：返回带 L 行号前缀的原文行，不是摘要。"""
+        self._send(LIST_TOOLS)
+        r = self._call(202, "journal_read", {"path": "2026-11-01.md", "line": 5, "context": 1})
+        payload = json.loads(r["result"]["content"][0]["text"])
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["total_lines"], 6)
+        self.assertIn("L5: - 曼努斯面试结束（21 分钟），面试官说适配度不够。", payload["text"])
+
+    def test_23_journal_read_line_out_of_range(self):
+        """行号越界回 -32602 并说明合法范围。"""
+        self._send(LIST_TOOLS)
+        r = self._call(203, "journal_read", {"path": "2026-11-01.md", "line": 999})
+        self.assertEqual(r["error"]["code"], -32602)
+        self.assertIn("行号越界", r["error"]["message"])
+
+    def test_24_journal_read_path_escape_rejected(self):
+        """../.. 逃逸被拒：-32602「路径越界」，读不到记忆目录之外的文件。"""
+        self._send(LIST_TOOLS)
+        r = self._call(204, "journal_read",
+                       {"path": "../../outside_secret.md", "line": 1})
+        self.assertEqual(r["error"]["code"], -32602)
+        self.assertIn("路径越界", r["error"]["message"])
+        self.assertNotIn("秘密文件", json.dumps(r, ensure_ascii=False))
+
+    def test_25_memory_dir_missing_explicit_error(self):
+        """PAI_MEMORY_DIR 指向不存在的目录：明确报「记忆目录不存在」，不静默返回空。"""
+        env = dict(self.env, PAI_MEMORY_DIR=str(Path(self.mem) / "不存在的目录"))
+        proc = subprocess.Popen(
+            [sys.executable, str(SERVER)], stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, text=True,
+            encoding="utf-8", cwd=str(ROOT))
+        try:
+            proc.stdin.write(json.dumps(LIST_TOOLS) + "\n")
+            proc.stdin.flush()
+            json.loads(proc.stdout.readline())  # 探活
+            proc.stdin.write(json.dumps(
+                {"jsonrpc": "2.0", "id": 205, "method": "tools/call",
+                 "params": {"name": "journal_search", "arguments": {"query": "曼努斯"}}}) + "\n")
+            proc.stdin.flush()
+            r = json.loads(proc.stdout.readline())
+        finally:
+            try:
+                proc.stdin.close()
+            except OSError:
+                pass
+            proc.wait(timeout=5)
+        self.assertEqual(r["error"]["code"], -32602)
+        self.assertIn("记忆目录不存在", r["error"]["message"])
+
+    def test_26_topic_list_and_read(self):
+        """topic_list 列出主题；topic_read 正常读、不存在报错、越界拒绝。"""
+        self._send(LIST_TOOLS)
+        r = self._call(206, "topic_list", {})
+        payload = json.loads(r["result"]["content"][0]["text"])
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["count"], 2)
+        self.assertEqual({t["name"] for t in payload["topics"]}, {"求职线", "技术线"})
+
+        r = self._call(207, "topic_read", {"name": "求职线"})
+        payload = json.loads(r["result"]["content"][0]["text"])
+        self.assertTrue(payload["ok"])
+        self.assertIn("合成测试数据", payload["text"])
+
+        r = self._call(208, "topic_read", {"name": "topics/技术线.md"})
+        payload = json.loads(r["result"]["content"][0]["text"])
+        self.assertTrue(payload["ok"])
+
+        r = self._call(209, "topic_read", {"name": "不存在"})
+        self.assertEqual(r["error"]["code"], -32602)
+        r = self._call(210, "topic_read", {"name": "../../outside_secret.md"})
+        self.assertEqual(r["error"]["code"], -32602)
+        self.assertIn("路径越界", r["error"]["message"])
+
+    def test_27_journal_read_context_clipping(self):
+        """上下文裁剪：目标行贴近文件头/尾时不越界。"""
+        self._send(LIST_TOOLS)
+        r = self._call(211, "journal_read", {"path": "2026-11-02.md", "line": 1, "context": 10})
+        payload = json.loads(r["result"]["content"][0]["text"])
+        self.assertEqual(payload["range"], [1, 5])  # 文件只有 5 行，尾部裁掉
+        self.assertNotIn("L6:", payload["text"])
+
+        r = self._call(212, "journal_read", {"path": "2026-11-01.md", "line": 5, "context": 1})
+        payload = json.loads(r["result"]["content"][0]["text"])
+        self.assertEqual(payload["range"], [4, 6])
 
 
 if __name__ == "__main__":
