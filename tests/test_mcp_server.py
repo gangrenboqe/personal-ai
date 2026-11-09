@@ -131,15 +131,16 @@ class TestMcpServer(unittest.TestCase):
             "name": "memory_create",
             "arguments": {"kind": kind, "title": title, "content": content}}})
 
-    def test_07_tools_list_has_sixteen(self):
-        """工具扩到 16 个：记忆库 12 + 文件层 4（journal_search/journal_read/topic_list/topic_read）。"""
+    def test_07_tools_list_has_eighteen(self):
+        """工具扩到 18 个：记忆库 14（含 43 号 memory_verify/memory_conflicts）+ 文件层 4。"""
         r = self._send(LIST_TOOLS)
         names = {t["name"] for t in r["result"]["tools"]}
-        self.assertEqual(len(names), 16)
+        self.assertEqual(len(names), 18)
         self.assertEqual(names, {
             "memory_create", "memory_search", "memory_list", "memory_view",
             "memory_update", "memory_delete", "memory_rename", "memory_insert",
             "memory_stats", "memory_export", "memory_import", "history_search",
+            "memory_verify", "memory_conflicts",
             "journal_search", "journal_read", "topic_list", "topic_read"})
 
     def test_08_view_update_rename_insert_chain(self):
@@ -266,6 +267,39 @@ class TestMcpServer(unittest.TestCase):
         caps = r["result"]["capabilities"]
         self.assertIn("resources", caps)
         self.assertIn("prompts", caps)
+
+    def test_28_conflicts_and_verify_pipe(self):
+        """43 号管道：create 检出冲突 → memory_conflicts 列原文 → memory_verify 确认。"""
+        self._send(LIST_TOOLS)
+        r = self._send({"jsonrpc": "2.0", "id": 160, "method": "tools/call", "params": {
+            "name": "memory_create", "arguments": {
+                "kind": "conclusion", "title": "数据库选型",
+                "content": "本项目数据库统一用 SQLite。"}}})
+        self.assertTrue(json.loads(r["result"]["content"][0]["text"])["ok"])
+        r = self._send({"jsonrpc": "2.0", "id": 161, "method": "tools/call", "params": {
+            "name": "memory_create", "arguments": {
+                "kind": "conclusion", "title": "数据库选型变更",
+                "content": "数据库改用 Postgres。"}}})
+        payload = json.loads(r["result"]["content"][0]["text"])
+        self.assertTrue(payload["ok"])
+        self.assertIn("两条都保留", payload.get("message", ""))
+        self.assertIn("未标取代", payload.get("message", ""))
+
+        r = self._send({"jsonrpc": "2.0", "id": 162, "method": "tools/call", "params": {
+            "name": "memory_conflicts", "arguments": {}}})
+        payload = json.loads(r["result"]["content"][0]["text"])
+        self.assertEqual(payload["count"], 1)
+        pair = payload["items"][0]
+        self.assertIn("统一用 SQLite", pair["a"]["content"])   # 原文全文返回
+        self.assertIn("改用 Postgres", pair["b"]["content"])
+        self.assertTrue(pair["reasons"])
+
+        r = self._send({"jsonrpc": "2.0", "id": 163, "method": "tools/call", "params": {
+            "name": "memory_verify",
+            "arguments": {"path": "/memories/conclusion/数据库选型.md"}}})
+        payload = json.loads(r["result"]["content"][0]["text"])
+        self.assertTrue(payload["ok"])
+        self.assertIn("verified_at", payload)
 
 
 # ------------------------------------- 42 号：文件层四工具（临时目录现造样本，零真实日志内容）

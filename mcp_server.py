@@ -8,7 +8,9 @@ JSON-RPC 2.0 over stdio，零第三方依赖（标准库手写，不用官方 SD
 - 每条响应写完必须 flush，否则客户端收不到。
 
 能力：
-- tools：16 个 = 记忆库 12 个（memory_create/search/list/view/update/delete/rename/insert/stats/export/import + history_search）
+- tools：18 个 = 记忆库 14 个（memory_create/search/list/view/update/delete/rename/insert/stats/
+  export/import + history_search + memory_verify/memory_conflicts，后两个为 43 号：确认入口与
+  疑似冲突清单——只列不裁）
   + 文件层 4 个（journal_search/journal_read/topic_list/topic_read，42 号：复用记忆目录里
   查记忆.py 的检索逻辑——分词/打分/排序只此一份，不复制第二套）
 - resources：memories://<path> —— 客户端可像浏览文件树一样直接翻记忆库，不用先搜
@@ -392,7 +394,9 @@ MCP_TOOLS = (
     [_from_schema("memory_create"), _from_schema("memory_search"), _NEW_TOOLS["memory_list"],
      _NEW_TOOLS["memory_view"], _NEW_TOOLS["memory_update"], _NEW_TOOLS["memory_delete"],
      _NEW_TOOLS["memory_rename"], _NEW_TOOLS["memory_insert"], _NEW_TOOLS["memory_stats"],
-     _NEW_TOOLS["memory_export"], _NEW_TOOLS["memory_import"], _from_schema("history_search")]
+     _NEW_TOOLS["memory_export"], _NEW_TOOLS["memory_import"],
+     _from_schema("memory_verify"), _from_schema("memory_conflicts"),
+     _from_schema("history_search")]
     + _FILE_TOOLS
 )
 _TOOL_NAMES = {t["name"] for t in MCP_TOOLS}

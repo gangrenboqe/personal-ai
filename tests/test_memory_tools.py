@@ -63,8 +63,10 @@ class TestSchema(unittest.TestCase):
         self.tools = {t["function"]["name"]: t["function"] for t in memory_tools_schema()}
 
     def test_01_three_tools(self):
-        """1 工具清单：create / view / search / history_search（38 号任务 4 新增第四个，断言由三改四）。"""
-        self.assertEqual(set(self.tools), {"memory_create", "memory_view", "memory_search", "history_search"})
+        """1 工具清单：38 号新增 history_search（断言由三改四），43 号再增 verify/conflicts（四改六）。"""
+        self.assertEqual(set(self.tools), {
+            "memory_create", "memory_view", "memory_search", "history_search",
+            "memory_verify", "memory_conflicts"})
 
     def test_02_create_params_exactly_kind_title_content(self):
         """2 create 参数恰好 kind/title/content——path 与 source 必须不在 schema 里（设计者修正）。"""

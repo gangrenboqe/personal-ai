@@ -419,7 +419,7 @@ python -m personal_ai --once "你好"
 JSON-RPC 2.0 over stdio，**标准库手写，零第三方依赖**（不用官方 SDK）。
 任何支持 MCP 的客户端（Claude Desktop / Cursor / Trae 等）配一行即可连上。
 
-**工具（16 个 = 记忆库 12 + 文件层 4）**：
+**工具（18 个 = 记忆库 14 + 文件层 4）**：
 
 | 工具 | 干什么 |
 |---|---|
@@ -435,6 +435,8 @@ JSON-RPC 2.0 over stdio，**标准库手写，零第三方依赖**（不用官�
 | `memory_export` | 导出全部活记忆为 JSON |
 | `memory_import` | 批量导入（source 标「批量导入」） |
 | `history_search` | 全文检索历史对话（带会话名/时间/片段出处） |
+| `memory_verify` | 「这条我确认过了」：刷新 verified_at，解除淡忘降权（43 号） |
+| `memory_conflicts` | 列出疑似自相矛盾的记忆对（双方原文全文+理由）；**只列不裁，裁决由人**（43 号） |
 | `journal_search` | **文件层**全文检索：工作日志 + topics/ + LOOKUP.md 问题目录 + index/，返回「相对路径+行号+原文行+相关度」指针（42 号） |
 | `journal_read` | **文件层**按指针读原文上下文（默认前后各 10 行，行首带 L 行号），路径越界拒绝（42 号） |
 | `topic_list` | **文件层**列出 topics/ 主题归档文件（42 号） |
@@ -486,10 +488,14 @@ Cursor / Trae 的 MCP 配置文件（`.cursor/mcp.json` 或工作区 `.trae/mcp.
 
 **验证状态（如实）**：
 
-- 协议层全链路已验证：子进程真实 stdio 管道测试 22 项（`python -m unittest tests.test_mcp_server`）
-  ——14 项记忆库（握手 / 通知静默 / 列工具含判据 / create 后库 +1 / search 查回 / 错误码 -32601·-32602 等）
+- 协议层全链路已验证：子进程真实 stdio 管道测试 23 项（`python -m unittest tests.test_mcp_server`）
+  ——15 项记忆库（握手 / 通知静默 / 列工具含判据 / create 后库 +1 / search 查回 / 错误码
+  -32601·-32602 / 43 号冲突检出→conflicts 列原文→verify 确认等）
   + 8 项文件层（42 号：中文命中 / 查不到返回空 / 读到原文 / 行号越界 / 路径逃逸被拒 /
   目录不存在报错 / topic_list·topic_read / 上下文裁剪；**样本全部在临时目录现造，不含真实日志**）。
+- 43 号冲突检测与淡忘：16 项专项测试（`python -m unittest tests.test_memory_conflicts`）——
+  三组真冲突检出（SQLite/Postgres、tab/空格、推荐/不推荐）+ 四组相似不误报（同取值补充 /
+  同实体正向补充 / 迁移记录 / 跨 kind）+ 淡忘降权 0.7 仍可搜到、verify 恢复权重。
 - 文件层手工管道实测（真实记忆目录）：journal_search「Manus 面试」第一条命中 LOOKUP.md:56
   并带回 11-04 面试结束、10-29 纠正等出处；journal_read 返回日志原文；`../../` 被拒；
   stderr 仅启动/退出两行，stdout 零污染。

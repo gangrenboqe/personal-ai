@@ -189,6 +189,11 @@ def build_context_block(hits: list[dict]) -> str:
         lines.append(
             f"   来源: {h.get('source', '')} · 写入: {h.get('written_at', '')} · 核过: {verified}"
         )
+        if h.get("faded"):
+            lines.append(
+                f"   ⚠️ 淡忘：超过 {FADE_DAYS} 天未确认，仅供参考"
+                "（确认仍成立可调 memory_verify 恢复权重；未删除未隐藏）"
+            )
         if h.get("expires_hint"):
             lines.append(f"   过期提示: {h['expires_hint']}")
         text = (h.get("content") or "").strip()
@@ -232,6 +237,182 @@ def _split_query(query: str, max_like: int = 16) -> tuple[list[str], list[str]]:
             if bg not in like_terms:
                 like_terms.append(bg)
     return phrases, like_terms[:max_like]
+
+
+# ------------------------------------------------------------------
+# 43 号：冲突检测 + 淡忘不删
+#
+# 只用 memories 表现有字段（kind / superseded_by / verified_at / written_at /
+# deleted_at），不加列、不改表结构。铁律：不删任何记忆、不自动合并、
+# 不改任何一条的 content；判定宁可漏报也不误报（误报一次人就不再信这个功能）。
+# ------------------------------------------------------------------
+
+# 淡忘线（天）：距「确认锚点」超过这么多天就在 search 里降权。
+# 90 天 ≈ 一个季度的复核周期：太短会频繁降权打扰人，太长起不到提醒复核的作用。
+FADE_DAYS = 90
+
+# 淡忘权重：命中相关度乘 0.7 往后放（工单指定值）。只降权——仍然搜得到，
+# 绝不隐藏、绝不删除、绝不改内容；人工 mark_verified 确认后恢复满权重。
+# 注：表里没有「最近被查过」字段且本单不许改表结构，「没被查过」统计不了，
+# 淡忘按「没被核过」口径计算（如实说明，不装能查到）。
+FADE_WEIGHT = 0.7
+
+# 断言判定窗口（字符）：取值词前面这么近的距离内出现断言动词，才算「选了它」。
+# 窗口太大会把无关句子的动词算进来（误报），太小会漏掉正常语序（漏报可接受）。
+_ASSERT_WINDOW = 10
+
+# 主题提示词与取值词的最大间距（字符）：提示词（「缩进」「数据库」）与取值词紧邻
+# （如「tab 缩进」「数据库用 SQLite」）即视为断言——主题词+取值词连写本身就是断言。
+# 间距放太宽会把别的句子扯进来（误报）。
+_HINT_GAP = 6
+
+# 断言动词：只认明确的选择语气。「迁移到 / 评估 / 考虑」不算——迁移记录同时提到
+# 新旧两个值，算断言必误报（宁漏勿误）。
+_CONFLICT_ASSERT_VERBS = ("用", "使用", "采用", "选定", "统一", "换用", "改用")
+
+# 断言排除窗口：取值词紧前面是这些字样时不算断言
+# （否定式「不上 Postgres」、来源式「从 SQLite …」、迁移/评估/考虑语境）。
+_CONFLICT_ASSERT_EXCLUDE = re.compile(
+    r"(不|别|禁止|拒绝|从|由|迁移|评估|考虑)[^，。；,;]{0,4}$"
+)
+
+# 互斥取值家族（43 号）：只登记「同一处选型只能取一」的确定家族，宁漏勿误。
+# 每族：name=冲突理由里给人家看的名字；hints=主题提示词（两边正文都要出现才算
+# 同主题）；values=取值 → 别名元组。扩家族只改这张表，不改判定逻辑。
+_CONFLICT_FAMILIES = (
+    {
+        "name": "数据库选型",
+        "hints": ("数据库", "存储", "选型"),
+        "values": {
+            "SQLite": ("sqlite",),
+            "Postgres": ("postgres", "postgresql", "pgsql"),
+            "MySQL": ("mysql",),
+        },
+    },
+    {
+        "name": "缩进风格",
+        "hints": ("缩进",),
+        "values": {
+            "tab": ("tab",),
+            "空格": ("空格", "space", "spaces"),
+        },
+    },
+)
+
+# 推荐/不推荐：肯定式与否定式的捕获模板。肯定式带 (?<![不别要]) 避免「不推荐」
+# 被当成「推荐」。实体核心词去掉通用后缀后必须完全相等——这是「关键实体相同」的
+# 可解释判定；不用全文全等（工单禁止），也不用子串包含（「A 公司」和「B 公司」
+# 共有「公司」二字，子串包含必误报）。
+_RECOMMEND_POS_RE = re.compile(r"(?<![不别要])推荐\s*[:：]?\s*([^\s，。；,.;：！!？?]{1,24})")
+_RECOMMEND_NEG_RE = re.compile(
+    r"(?:不推荐|别推荐|不建议|不要推荐)\s*[:：]?\s*([^\s，。；,.;：！!？?]{1,24})"
+)
+_ENTITY_SUFFIX_RE = re.compile(r"(?:公司|项目|方案|工具|库|框架|岗位|路线|软件)$")
+
+
+def _extract_entities(matches: list[str]) -> set[str]:
+    """把捕获到的实体短语清洗成核心词（去通用后缀、去首尾空白、转小写）。"""
+    out: set[str] = set()
+    for raw in matches:
+        core = raw.strip("　.。,，-— ")
+        while core:
+            stripped = _ENTITY_SUFFIX_RE.sub("", core).strip("　 ")
+            if stripped == core or not stripped:
+                break
+            core = stripped
+        if core:
+            out.add(core.lower())
+    return out
+
+
+def _recommend_conflicts(a: str, b: str) -> list[str]:
+    """推荐/不推荐同一实体：关键实体相同 + 取值相反。"""
+    out: list[str] = []
+    pos_a = _extract_entities(_RECOMMEND_POS_RE.findall(a))
+    neg_a = _extract_entities(_RECOMMEND_NEG_RE.findall(a))
+    pos_b = _extract_entities(_RECOMMEND_POS_RE.findall(b))
+    neg_b = _extract_entities(_RECOMMEND_NEG_RE.findall(b))
+    for e in sorted(pos_a & neg_b):
+        out.append(f"推荐冲突：一条「推荐 {e}」，另一条「不推荐 {e}」")
+    for e in sorted(pos_b & neg_a):
+        out.append(f"推荐冲突：一条「不推荐 {e}」，另一条「推荐 {e}」")
+    return out
+
+
+def _asserted_values(text: str, family: dict) -> set[str]:
+    """提取一条正文里「被断言」的取值。只提到、没断言的不算（宁漏勿误）。
+
+    断言 = 满足其一：①取值词前 _ASSERT_WINDOW 内有断言动词；
+    ②主题提示词与取值词间距 ≤ _HINT_GAP（「tab 缩进」这类连写）。
+    再叠加排除窗口（否定式 / 来源式「从 X …」），双保险压误报。
+    """
+    out: set[str] = set()
+    hints = [h for h in family["hints"] if h in text]
+    if not hints:
+        return out  # 连主题词都没有，整族不判
+    low = text.lower()
+    for value, aliases in family["values"].items():
+        for alias in aliases:
+            pat = (rf"(?<![A-Za-z]){re.escape(alias)}(?![A-Za-z])"
+                   if alias.isascii() else re.escape(alias))
+            for m in re.finditer(pat, low):
+                window = text[max(0, m.start() - _ASSERT_WINDOW): m.start()]
+                has_verb = any(v in window for v in _CONFLICT_ASSERT_VERBS)
+                near_hint = any(
+                    h in text[max(0, m.start() - _HINT_GAP): m.end() + _HINT_GAP]
+                    for h in hints
+                )
+                if not (has_verb or near_hint):
+                    continue  # 只是提到，没断言
+                if _CONFLICT_ASSERT_EXCLUDE.search(window):
+                    continue  # 否定式（不上 Postgres）/ 来源式（从 SQLite …）不算
+                out.add(value)
+                break
+    return out
+
+
+def _family_conflicts(a: str, b: str) -> list[str]:
+    """同主题（两边正文都出现家族主题词）+ 各自断言不同取值。"""
+    out: list[str] = []
+    for family in _CONFLICT_FAMILIES:
+        if not (any(h in a for h in family["hints"]) and any(h in b for h in family["hints"])):
+            continue  # 同主题不成立，不判
+        for va in sorted(_asserted_values(a, family)):
+            for vb in sorted(_asserted_values(b, family)):
+                if va != vb:
+                    out.append(
+                        f"取值相反（{family['name']}）：一条断言「{va}」，另一条断言「{vb}」"
+                    )
+    return out
+
+
+def detect_conflicts(content_a: str, content_b: str) -> list[str]:
+    """对比两条记忆正文，返回疑似冲突理由列表（空 = 未发现）。只判不记，方向无关。
+
+    可解释规则只有两类（工单口径：同主题 + 关键实体相同 + 取值相反）：
+    ① 推荐/不推荐同一实体；② 同一互斥家族里断言了不同取值。
+    全是保守判定：宁可漏报；不拿全文全等当判据、不用 embedding、不引第三方包。
+    """
+    a, b = content_a or "", content_b or ""
+    return _recommend_conflicts(a, b) + _family_conflicts(a, b)
+
+
+def _is_faded(verified_at: str | None, written_at: str, now: datetime | None = None) -> bool:
+    """淡忘判定：距「确认锚点」超过 FADE_DAYS 天。
+
+    锚点 = verified_at（人工确认过就以最近一次确认为准），没核过落回 written_at。
+    「没被查过」统计不了（无字段且不许改表结构），按「没核过」口径——如实。
+    时间格式异常时宁可当没淡忘（不降权，不误伤）。
+    """
+    anchor = verified_at or written_at
+    if not anchor:
+        return False
+    try:
+        t = datetime.fromisoformat(str(anchor))
+    except ValueError:
+        return False
+    now = now or datetime.now()
+    return (now - t).days > FADE_DAYS
 
 
 # ------------------------------------------------------------------ 存储
@@ -404,11 +585,18 @@ class MemoryStore:
                     " FROM memories_fts JOIN memories m ON m.id = memories_fts.rowid"
                     " WHERE memories_fts MATCH ?"
                     " AND m.deleted_at IS NULL AND m.superseded_by IS NULL"
-                    " ORDER BY rank LIMIT ?",
-                    (" OR ".join(phrases), limit),
+                    " ORDER BY rank * (CASE"
+                    "   WHEN julianday('now') - julianday(COALESCE(m.verified_at, m.written_at)) > ?"
+                    "   THEN ? ELSE 1.0 END)"
+                    " LIMIT ?",
+                    # 43 号淡忘：bm25 的 rank 是「越小（越负）越好」，相关度乘 0.7
+                    # 等价于 rank 乘 0.7（往 0 靠 = 变差）。只降权，不隐藏。
+                    (FADE_DAYS, FADE_WEIGHT, " OR ".join(phrases), limit),
                 ).fetchall()
                 for r in rows:
-                    found[r["id"]] = dict(r)
+                    item = dict(r)
+                    item["faded"] = _is_faded(r["verified_at"], r["written_at"])
+                    found[r["id"]] = item
             if like_terms:
                 # 2 字词 trigram 匹配不了，走 LIKE 兜底（一次全扫、按命中词数排序）
                 cond = " OR ".join(
@@ -427,13 +615,17 @@ class MemoryStore:
                 scored = []
                 for r in rows:
                     hay = r["content"] + r["path"]
-                    score = sum(1 for t in like_terms if t in hay)
-                    if score > 0:
-                        scored.append((score, r))
+                    base = sum(1 for t in like_terms if t in hay)
+                    if base > 0:
+                        # 43 号淡忘：相关度乘 0.7 往后放（同分稳定排序保住 written_at 原序）
+                        faded = _is_faded(r["verified_at"], r["written_at"])
+                        scored.append((base * (FADE_WEIGHT if faded else 1.0), faded, r))
                 scored.sort(key=lambda x: -x[0])  # 同分保持 written_at DESC 原序
-                for _score, r in scored:
+                for score, faded, r in scored:
                     if r["id"] not in found:
                         item = dict(r)
+                        item["faded"] = faded
+                        item["score"] = round(score, 3)
                         item["snippet"] = next(
                             (
                                 _plain_snippet(r["content"], t)
@@ -481,6 +673,72 @@ class MemoryStore:
             )
             if cur.rowcount == 0:
                 raise MemoryCommandError(f"被取代的路径不存在或已删: {old_path}")
+
+    # ---------- 43 号：冲突检测 + 淡忘 ----------
+
+    def find_conflicts_for(
+        self, kind: str, content: str, exclude_id: int | None = None
+    ) -> list[dict]:
+        """给定新记忆的 kind+content，在同 kind 存活旧记忆里找疑似冲突。
+
+        只查不写（标不标 superseded_by 由调用方决定）；判定宁可漏报不误报，
+        命中时带可解释的 reasons，供调用方与人工核对。
+        """
+        with _connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT id, path, content, source, written_at, verified_at"
+                " FROM memories WHERE kind = ? AND deleted_at IS NULL"
+                " AND superseded_by IS NULL AND id != ? ORDER BY id",
+                (kind, exclude_id if exclude_id is not None else -1),
+            ).fetchall()
+        hits: list[dict] = []
+        for r in rows:
+            reasons = detect_conflicts(content, r["content"])
+            if reasons:
+                hits.append({**dict(r), "reasons": reasons})
+        return hits
+
+    def mark_verified(self, path: str) -> str:
+        """43 号：「这条我确认过了」——刷新 verified_at，解除淡忘降权。
+
+        只动 verified_at，绝不改 content，绝不删除。返回刷新时间。
+        """
+        with _connect(self.db_path) as conn:
+            row = self._fetch_live(conn, path)
+            ts = _now_iso()
+            conn.execute(
+                "UPDATE memories SET verified_at = ? WHERE id = ?", (ts, row["id"])
+            )
+        return ts
+
+    def list_conflicts(self) -> list[dict]:
+        """43 号：两两比对全部存活记忆，列出疑似冲突对。只读不写，不替人裁决。
+
+        每对带双方 id / path / content 原文 / 各自时间 / superseded_by 与冲突理由。
+        冲突只判同 kind（工单口径）；软删（tombstone）条目不参与。
+        """
+        with _connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT id, path, content, kind, source, written_at, verified_at,"
+                " superseded_by FROM memories WHERE deleted_at IS NULL ORDER BY id"
+            ).fetchall()
+        items = [dict(r) for r in rows]
+        keys = ("id", "path", "content", "written_at", "verified_at", "superseded_by")
+        pairs: list[dict] = []
+        for i in range(len(items)):
+            for j in range(i + 1, len(items)):
+                a, b = items[i], items[j]
+                if a["kind"] != b["kind"]:
+                    continue
+                reasons = detect_conflicts(a["content"], b["content"])
+                if reasons:
+                    pairs.append({
+                        "a": {k: a[k] for k in keys},
+                        "b": {k: b[k] for k in keys},
+                        "reasons": reasons,
+                        "note": "疑似冲突，仅供人工裁决；两条都保留，本工具不替你作废任何一条",
+                    })
+        return pairs
 
     def get_context_block(self, query: str, limit: int = 5) -> str:
         """检索 + 拼注入块。空命中返回空串（调用方不注入）。"""
@@ -583,6 +841,29 @@ def memory_tools_schema() -> list[dict]:
                 },
                 "required": ["query"],
             },
+        }},
+        {"type": "function", "function": {
+            "name": "memory_verify",
+            "description": (
+                f"「这条我确认过了」：把某条记忆的 verified_at 刷新为现在，解除淡忘降权"
+                f"（超过 {FADE_DAYS} 天没确认的记忆在检索里会往后排，但不隐藏不删除）。"
+                "只在你确实核对了内容仍然成立时调用；本工具不改变记忆内容本身。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": "/memories/ 开头的存储路径"}},
+                "required": ["path"],
+            },
+        }},
+        {"type": "function", "function": {
+            "name": "memory_conflicts",
+            "description": (
+                "列出记忆层里所有「疑似自相矛盾」的记忆对：双方的路径、原文全文、各自时间、"
+                "冲突理由。只列不裁——工具不会替你作废或合并任何一条，裁决由人做："
+                "确认旧的不对就 memory_delete 软删或 memory_update 改写；确认没问题就 memory_verify。"
+                "没有疑似冲突时返回空列表，不要凭空编造冲突。"
+            ),
+            "parameters": {"type": "object", "properties": {}},
         }},
         {"type": "function", "function": {
             "name": "history_search",
@@ -711,6 +992,16 @@ class MemoryToolExecutor:
                     else:
                         failed.append({"index": i, "error": r.get("error")})
                 return {"ok": True, "imported": imported, "failed": failed}
+            if name == "memory_verify":
+                """43 号：确认一条记忆仍成立（刷新 verified_at，解除淡忘降权）。"""
+                path = str(arguments.get("path") or "")
+                ts = self.store.mark_verified(path)
+                return {"ok": True, "path": path, "verified_at": ts,
+                        "message": "已确认（verified_at 已刷新，淡忘降权解除）"}
+            if name == "memory_conflicts":
+                """43 号：列出疑似冲突对。只列不裁——裁决由人做。"""
+                pairs = self.store.list_conflicts()
+                return {"ok": True, "count": len(pairs), "items": pairs}
             if name == "history_search":
                 return self._history_search(arguments)
             return {"ok": False, "error": f"未知工具: {name}"}
@@ -790,4 +1081,18 @@ class MemoryToolExecutor:
             return {"ok": False, "error": "content 必填（记忆正文）"}
         path = f"/memories/{kind}/{_slugify(title)}.md"
         new_id = self.store.create(path, content, kind, source)
-        return {"ok": True, "id": new_id, "path": path}
+        # 43 号：写入后立刻在同 kind 旧记忆里找疑似冲突。两条都保留、**都留在检索里**——
+        # **不标 superseded_by**。原因：这只是自动检出的「疑似」，还没人工裁决；
+        # 一旦标记，search 会把旧条排除（既有语义），等于在没人确认的情况下
+        # 让一种说法从检索里消失，调用方甚至不知道存在另一种说法。
+        # 明确取代要走 mark_superseded —— 那是人的决定，不是检测器的决定。
+        conflicts = self.store.find_conflicts_for(kind, content, exclude_id=new_id)
+        marked = [{"id": c["id"], "path": c["path"], "reasons": c["reasons"]} for c in conflicts]
+        out = {"ok": True, "id": new_id, "path": path}
+        if marked:
+            out["conflicts"] = marked
+            out["message"] = (
+                "发现疑似冲突，两条都保留、都参与检索（未标取代、未删除、未改写）。"
+                "要裁决请用 memory_conflicts 看两边全文，再对确定作废的一条显式处理。"
+            )
+        return out
