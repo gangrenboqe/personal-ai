@@ -19,3 +19,9 @@ A personal AI entry point that runs on your own machine:
 - **Two test layers in CI** — 31 unit tests + 32 smoke tests, across Ubuntu/Windows × Python 3.11/3.13
 
 See **[README.md](README.md)** for architecture, API reference, measured evidence and known gaps.
+
+## License
+
+Versions released from 2026-11-13 onward are licensed under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0): free for personal study, research, experiment and other noncommercial purposes, **not for commercial use**. Earlier versions were released under the MIT License.
+
+Required Notice: Copyright 2026 谢一竹 (https://github.com/gangrenboqe)

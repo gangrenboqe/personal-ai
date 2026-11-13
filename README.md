@@ -519,3 +519,9 @@ Cursor / Trae 的 MCP 配置文件（`.cursor/mcp.json` 或工作区 `.trae/mcp.
 
 本仓库只发布产品代码与说明。**项目内部的任务树、决策记录、工作流水账与职业资料保存在本机 `_agent_center/`，
 含个人信息，不随本仓库公开。** 这样做是刻意的：代码可以公开，私人资料不公开。
+
+## 许可证
+
+自 2026-11-13 起的版本适用 [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0)：可自由用于个人学习、研究、试验与非商业用途，**不得用于商业目的**。此前发布的版本适用 MIT。
+
+Required Notice: Copyright 2026 谢一竹 (https://github.com/gangrenboqe)
