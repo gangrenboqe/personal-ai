@@ -1,0 +1,3715 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>引力波对弈 · Demo</title>
+<style>
+  * { box-sizing: border-box; }
+  .resume-hide { display: none !important; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: #040a0f; color: #eaf6ff;
+    font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+    touch-action: none; user-select: none;
+  }
+  canvas { position: fixed; inset: 0; display: block; }
+  .hud { position: fixed; inset: 0; pointer-events: none; transition: opacity .25s; }
+  .hud.hidden { opacity: 0; }
+  .topbar {
+    position: absolute; top: 0; left: 0; right: 0;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    padding: 16px 22px; gap: 14px;
+  }
+  .side {
+    width: 186px; padding: 10px 14px; border-radius: 16px;
+    background: rgba(8, 22, 30, .55); border: 1px solid rgba(255,255,255,.08);
+    transition: box-shadow .2s, border-color .2s, background .2s;
+  }
+  .side.blue.active {
+    border-color: rgba(111,211,255,.55);
+    box-shadow: 0 0 26px rgba(111,211,255,.22);
+    background: rgba(10, 32, 42, .72);
+  }
+  .side.red.active {
+    border-color: rgba(255,122,138,.55);
+    box-shadow: 0 0 26px rgba(255,122,138,.22);
+    background: rgba(34, 16, 22, .72);
+  }
+  .side-head { display: flex; align-items: center; gap: 8px; font-size: 13px; letter-spacing: .12em; }
+  .side-head .tag { width: 9px; height: 9px; border-radius: 50%; }
+  .tag.blue { background: #6fd3ff; box-shadow: 0 0 10px rgba(111,211,255,.7); }
+  .tag.red { background: #ff7a8a; box-shadow: 0 0 10px rgba(255,122,138,.7); }
+  .side-lives { display: flex; gap: 7px; margin-top: 9px; }
+  .life { width: 11px; height: 11px; border-radius: 50%; }
+  .life.blue { background: #6fd3ff; box-shadow: 0 0 10px rgba(111,211,255,.6); }
+  .life.red { background: #ff7a8a; box-shadow: 0 0 10px rgba(255,122,138,.6); }
+  .life.dead { background: rgba(255,255,255,.14); box-shadow: none; }
+  .center { width: min(360px, 36vw); text-align: center; padding-top: 2px; }
+  .turn { font-size: 20px; font-weight: 800; letter-spacing: .12em; line-height: 1.2; text-shadow: 0 2px 14px rgba(111,211,255,.25); }
+  .turn.blue { color: #bdefff; }
+  .turn.red { color: #ffc2c9; }
+  .wave-label { font-size: 10px; letter-spacing: .2em; opacity: .62; margin-top: 9px; }
+  .wave-track {
+    height: 7px; border-radius: 99px; overflow: hidden; margin-top: 5px;
+    background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.08);
+    transition: box-shadow .15s;
+  }
+  .wave-track.danger { box-shadow: 0 0 18px rgba(255,95,109,.6); }
+  #wavefill {
+    height: 100%; width: 0%; border-radius: 99px;
+    background: linear-gradient(90deg, #5ee0ff, #ffd166 55%, #ff5f6d);
+    transition: width .08s linear;
+  }
+  .wave-time { font-size: 11px; opacity: .7; margin-top: 5px; height: 15px; letter-spacing: .05em; }
+  .arena-badge {
+    position: absolute; left: 50%; top: 112px; transform: translateX(-50%);
+    padding: 4px 13px; border-radius: 999px; font-size: 11px; letter-spacing: .18em;
+    color: rgba(234,246,255,.72); background: rgba(6,18,24,.55);
+    border: 1px solid rgba(255,255,255,.08);
+  }
+  .turn-banner {
+    position: absolute; left: 50%; top: 148px; transform: translate(-50%, -8px);
+    font-size: 25px; font-weight: 800; letter-spacing: .14em;
+    opacity: 0; transition: opacity .3s, transform .3s; text-shadow: 0 4px 22px rgba(0,0,0,.6);
+  }
+  .turn-banner.show { opacity: .92; transform: translate(-50%, 0); }
+  .turn-banner.blue { color: #bdefff; }
+  .turn-banner.red { color: #ffc2c9; }
+  .hint {
+    position: absolute; left: 50%; bottom: 7%; transform: translateX(-50%);
+    font-size: 14px; color: rgba(234,246,255,.82);
+    background: rgba(4,14,20,.6); border: 1px solid rgba(255,255,255,.08);
+    padding: 8px 16px; border-radius: 99px; opacity: 0; transition: opacity .3s;
+    white-space: nowrap; max-width: 92vw; overflow: hidden; text-overflow: ellipsis;
+  }
+  .hint.show { opacity: 1; }
+  .overlay {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at 50% 45%, rgba(6,20,28,.42), rgba(2,8,12,.78));
+    backdrop-filter: blur(3px); z-index: 10;
+  }
+  .overlay.hidden { display: none; }
+  #aiDiffRow.hidden, #aiDiffDesc.hidden { display: none; }
+  .panel {
+    width: min(580px, 92vw); max-height: 92vh; overflow: auto;
+    text-align: center; padding: 32px 30px 28px; border-radius: 24px;
+    background: linear-gradient(160deg, rgba(16,42,54,.88), rgba(6,18,26,.94));
+    border: 1px solid rgba(111,211,255,.2);
+    box-shadow: 0 24px 80px rgba(0,0,0,.5);
+  }
+  .title {
+    font-size: 42px; font-weight: 800; letter-spacing: .1em; margin: 0;
+    background: linear-gradient(180deg, #eafaff, #6fd3ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { font-size: 12px; letter-spacing: .22em; opacity: .58; margin: 10px 0 20px; }
+  .rule { font-size: 14px; line-height: 1.95; opacity: .84; text-align: left; margin: 0 auto 18px; max-width: 490px; }
+  .rule b { color: #8fe6ff; font-weight: 600; }
+  .chip-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 6px 0 8px; }
+  .chip {
+    padding: 8px 14px; font-size: 12px; letter-spacing: .06em; border-radius: 999px;
+    color: rgba(234,246,255,.66); background: rgba(8,24,32,.6);
+    border: 1px solid rgba(255,255,255,.12); box-shadow: none;
+  }
+  .chip:hover { transform: none; border-color: rgba(111,211,255,.4); }
+  .chip.selected {
+    color: #dff7ff; border-color: rgba(111,211,255,.7);
+    background: rgba(20,58,74,.85); box-shadow: 0 0 18px rgba(111,211,255,.18);
+  }
+  .setting-label { font-size: 10px; letter-spacing: .2em; opacity: .5; margin-top: 12px; text-align: center; }
+  .setting-desc { font-size: 12px; opacity: .6; min-height: 17px; margin-bottom: 4px; text-align: center; }
+  .opt-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 8px 0 10px; }
+  .opt-label {
+    display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px;
+    font-size: 11px; color: rgba(234,246,255,.72); background: rgba(8,24,32,.5);
+    border: 1px solid rgba(255,255,255,.1); border-radius: 10px; cursor: pointer;
+  }
+  .opt-label input { accent-color: #6fd3ff; }
+  .small-label { font-size: 11px; opacity: .55; letter-spacing: .08em; align-self: center; margin-right: 2px; }
+  .slider-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0 14px; }
+  .slider-box { text-align: left; padding: 8px 12px; border-radius: 12px; background: rgba(8,24,32,.5); border: 1px solid rgba(255,255,255,.08); }
+  .slider-title { font-size: 11px; color: rgba(234,246,255,.62); letter-spacing: .04em; }
+  .slider-title b { color: #bfe9ff; font-weight: 600; float: right; }
+  input[type=range] { width: 100%; margin-top: 8px; accent-color: #6fd3ff; }
+  #bpm { width: 110px; flex: none; margin-top: 0; }
+  #bpmVal { font-size: 11px; color: #bfe9ff; min-width: 24px; text-align: right; }
+  .control-hint {
+    position: absolute; left: 50%; bottom: 3.2%; transform: translateX(-50%);
+    font-size: 11px; letter-spacing: .06em; color: rgba(234,246,255,.55);
+    white-space: nowrap; max-width: 92vw; overflow: hidden; text-overflow: ellipsis;
+  }
+  .result { font-size: 15px; line-height: 2; opacity: .86; margin-bottom: 20px; }
+  button {
+    pointer-events: auto; border: 0; border-radius: 999px; padding: 13px 34px;
+    font-size: 15px; font-weight: 700; letter-spacing: .1em; color: #06202b;
+    background: linear-gradient(180deg, #bff4ff, #6fd3ff);
+    box-shadow: 0 10px 30px rgba(111,211,255,.28), inset 0 1px 0 rgba(255,255,255,.65);
+    cursor: pointer; transition: transform .15s, box-shadow .15s;
+    font-family: inherit;
+  }
+  button:hover { transform: translateY(-2px); box-shadow: 0 14px 36px rgba(111,211,255,.4); }
+  button:active { transform: translateY(0) scale(.98); }
+  .ghost {
+    margin-left: 8px; color: #bfe9ff; background: rgba(8,24,32,.55);
+    border: 1px solid rgba(111,211,255,.28); box-shadow: none;
+  }
+  .ghost:hover { box-shadow: none; border-color: rgba(111,211,255,.55); }
+  .tip { font-size: 11px; opacity: .45; margin-top: 14px; letter-spacing: .06em; }
+  #muteBtn {
+    position: fixed; right: 16px; bottom: 16px; z-index: 20;
+    padding: 8px 14px; font-size: 12px; letter-spacing: .08em;
+    background: rgba(10,30,40,.65); color: #bfe9ff;
+    border: 1px solid rgba(111,211,255,.25); box-shadow: none;
+    backdrop-filter: blur(6px); pointer-events: auto;
+  }
+  #muteBtn:hover { transform: none; box-shadow: none; border-color: rgba(111,211,255,.5); }
+  #menuBtn {
+    position: fixed; left: 16px; bottom: 16px; z-index: 20;
+    padding: 8px 14px; font-size: 12px; letter-spacing: .08em;
+    background: rgba(10,30,40,.65); color: #bfe9ff;
+    border: 1px solid rgba(111,211,255,.25); box-shadow: none;
+    backdrop-filter: blur(6px); pointer-events: auto;
+  }
+  #menuBtn:hover { transform: none; box-shadow: none; border-color: rgba(111,211,255,.5); }
+  #menuBtn.hidden { display: none; }
+  @media (max-width: 820px) {
+    .side { width: 132px; padding: 8px 10px; }
+    .center { width: 42vw; }
+    .turn { font-size: 17px; }
+    .arena-badge { top: 104px; }
+    .turn-banner { top: 136px; font-size: 20px; }
+  }
+  @media (max-width: 520px) {
+    .topbar { padding: 10px 10px; gap: 6px; }
+    .side { width: 88px; padding: 6px 8px; border-radius: 12px; }
+    .side-head { font-size: 11px; letter-spacing: .06em; }
+    .life { width: 8px; height: 8px; }
+    .center { width: 38vw; min-width: 0; }
+    .turn { font-size: 15px; }
+    .wave-label { margin-top: 6px; font-size: 9px; }
+    .wave-time { font-size: 10px; }
+    .arena-badge { top: 92px; font-size: 10px; }
+    .turn-banner { top: 120px; font-size: 18px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud" class="hud hidden">
+  <div class="topbar">
+    <div class="side blue" id="bluePanel">
+      <div class="side-head"><span class="tag blue"></span><span>蓝方</span></div>
+      <div class="side-lives" id="blueLives"></div>
+    </div>
+    <div class="center">
+      <div id="turnText" class="turn blue">蓝方回合</div>
+      <div class="wave-label">最近波峰</div>
+      <div class="wave-track"><div id="wavefill"></div></div>
+      <div id="waveTime" class="wave-time">安全</div>
+    </div>
+    <div class="side red" id="redPanel">
+      <div class="side-head"><span class="tag red"></span><span>红方</span></div>
+      <div class="side-lives" id="redLives"></div>
+    </div>
+  </div>
+  <div id="arenaBadge" class="arena-badge">平静场</div>
+  <div id="turnBanner" class="turn-banner blue"></div>
+  <div id="hint" class="hint"></div>
+  <div id="controlHint" class="control-hint"></div>
+</div>
+
+<button id="muteBtn">音效 开</button>
+<button id="menuBtn" class="hidden">菜单</button>
+
+<div id="start" class="overlay">
+  <div class="panel">
+    <h1 class="title">引力波对弈</h1>
+    <div class="sub">零依赖 · 纯前端 · 引力波反射 · 单人 AI</div>
+    <div class="rule">
+      两颗彗星在星图上轮流跃迁。每次落点激起一圈引力波，波纹会真的走，并在棋盘边缘反弹。<br>
+      轮到你时，在引力波扫到你之前跃迁。谁先耗尽三次护盾，对方获胜。<br>
+      起跳那一刻脚下正好有波，会被弹弓甩得更远。
+    </div>
+
+    <div class="setting-label resume-hide">模式</div>
+    <div class="chip-row resume-hide" id="modeSelect">
+      <button class="chip mode-chip selected" data-mode="solo">测试：一人控两边</button>
+      <button class="chip mode-chip" data-mode="duo">双人：两人各控一边</button>
+      <button class="chip mode-chip" data-mode="ai">单人：对战 AI</button>
+    </div>
+    <div id="modeDesc" class="setting-desc resume-hide">鼠标瞄准，按住蓄力；你轮流控蓝红两颗彗星。</div>
+    <div id="aiDiffRow" class="chip-row hidden resume-hide">
+      <span class="small-label">AI 难度</span>
+      <button class="chip diff-chip selected" data-diff="easy">简单</button>
+      <button class="chip diff-chip" data-diff="normal">普通</button>
+      <button class="chip diff-chip" data-diff="hard">困难</button>
+    </div>
+    <div id="aiDiffDesc" class="setting-desc hidden resume-hide">简单：只看一步；普通：看两步；困难：会做陷阱。</div>
+
+    <div class="setting-label resume-hide">场地</div>
+    <div class="chip-row resume-hide" id="arenaSelect">
+      <button class="chip arena-chip selected" data-arena="0">平直时空</button>
+      <button class="chip arena-chip" data-arena="1">双缝屏</button>
+      <button class="chip arena-chip" data-arena="2">旋涡星</button>
+      <button class="chip arena-chip" data-arena="3">双奇点</button>
+    </div>
+    <div id="arenaDesc" class="setting-desc resume-hide">时空是平的，引力波按直线走。</div>
+
+    <div class="setting-label resume-hide">规则开关</div>
+    <div class="opt-row resume-hide">
+      <label class="opt-label"><input type="checkbox" id="optInterference"> 引力波叠加</label>
+      <label class="opt-label"><input type="checkbox" id="optBounce"> 边缘反射</label>
+      <label class="opt-label"><input type="checkbox" id="optSelf"> 波反噬自身</label>
+      <label class="opt-label"><input type="checkbox" id="optOneShot" checked> 击中后波纹消散</label>
+    </div>
+
+    <div class="setting-label resume-hide">节奏 B（试验）</div>
+    <div class="opt-row resume-hide">
+      <label class="opt-label"><input type="checkbox" id="optRhythmB" checked> BPM 驱动场域</label>
+      <span class="small-label">BPM</span>
+      <input id="bpm" type="range" min="60" max="160" step="1" value="90">
+      <span id="bpmVal">90</span>
+    </div>
+    <div class="setting-desc resume-hide">B：BPM 只改场域强度 / 转速，波纹速度不变；90 是基准（1×）。</div>
+
+    <div class="slider-row resume-hide">
+      <div class="slider-box">
+        <span class="slider-title">视角倾斜 <b id="viewTiltVal">0.50</b></span>
+        <input type="range" id="viewTilt" min="0.34" max="0.72" step="0.01" value="0.50">
+      </div>
+      <div class="slider-box">
+        <span class="slider-title">太极转速 <b id="taiSpinVal">0.28</b></span>
+        <input type="range" id="taiSpin" min="0.10" max="0.60" step="0.01" value="0.28">
+      </div>
+    </div>
+
+    <button id="startBtn">开始对弈</button>
+    <div class="tip">不用联网 · 鼠标瞄准 / 手机按住蓄力 · 对面是 AI</div>
+  </div>
+</div>
+
+<div id="gameover" class="overlay hidden">
+  <div class="panel">
+    <h1 class="title" id="gameoverTitle">蓝方胜</h1>
+    <div class="sub">对局结束</div>
+    <div id="finalScore" class="result"></div>
+    <button id="againBtn">再来一局</button>
+    <button id="arenaBtn" class="ghost">回到首页</button>
+    <div class="tip">按空格也可以重开</div>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // 简历版：只保留基础场 + 边缘反射 + 单人 AI（规则在 startGame 里锁定，界面不暴露其它场地和实验开关）
+  // 自测 / 压力测试要切换场地和控制模式，所以这两个入口下不锁
+  const RESUME_DEMO = !/[?&](selftest|stress)=1/.test(location.search);
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+
+  const GRID = 7;
+  const TW = 120;
+  const TH = 60;
+  const MIN_JUMP = 0.9;
+  const MAX_JUMP = 3.0;
+  const CHARGE_TIME = 1.15;
+  const MAX_LIVES = 3;
+  const WALL_SUM = 6;
+  // 棋盘的真实外沿在格心坐标 ±0.5 处；反射判定必须用外沿，不能用格心
+  const EDGE_MIN = -0.5;
+  const EDGE_MAX = GRID - 0.5;
+  const WAVE_PARTICLES = 140;
+  const WAVE_SPEED = 1.6;
+  const WAVE_WARMUP = 0.6;
+  const WAVE_LIFE = 11;
+  const HIT_RADIUS = 0.34;
+  const GAP_RADIUS = 0.22;
+  // 双缝屏：两个缝口；过缝后的波束方向跟着入射方向走
+  const SLIT_GAPS = [{ c: 2, r: 4 }, { c: 4, r: 2 }];
+  const BH_WAVE = 0.9;
+  const TAI_WAVE = 0.9;
+  const AIM_ROT = 2.2;
+  const ARENA_NAMES = ['平直时空', '双缝屏', '旋涡星', '双奇点'];
+  const ARENA_COLORS = ['#6fd3ff', '#8ee7c0', '#ffd166', '#c79bff'];
+  const ARENA_DESCS = [
+    '时空是平的，引力波按直线走；边界是反弹还是散掉，看规则开关。',
+    '一道带两个窄缝的屏把空间切成两半；引力波从缝口绕过去，每个缝口出一道窄波束，方向跟着入射位置变。屏不挡彗星。',
+    '一颗自转的旋涡星会把引力波和落点绕着中心拧。转速可调，默认很慢。',
+    '两个奇点会把引力波吸弯，也会把落点往奇点里拉。奇点不吞彗星，但落进去算自毁。'
+  ];
+  const PLAYER_NAMES = ['蓝方', '红方'];
+  const AI_CENTER = { c: 3, r: 3 };
+  const AI_CHARGES = [0.55, 0.7, 0.85, 1.0];
+  const AI_DIFF_NAMES = { easy: '简单', normal: '普通', hard: '困难' };
+  const AI_DIFF_DESCS = {
+    easy: '简单：只看一步，容易被绕开。',
+    normal: '普通：看两步，会封你的退路。',
+    hard: '困难：会做陷阱，故意留一个看起来安全的诱饵。'
+  };
+  const PLAYER_COLORS = [
+    { main: '#6fd3ff', dim: '#2a7e9e', soft: 'rgba(111,211,255,.5)' },
+    { main: '#ff7a8a', dim: '#a23a4a', soft: 'rgba(255,122,138,.5)' }
+  ];
+
+  let W = 0, H = 0, DPR = 1;
+  let boardCX = 0, boardCY = 0;
+  let tileW = TW, tileH = TH;
+  let stars = [];
+  let particles = [];
+  let floats = [];
+  let lastTs = 0;
+  let lastBarTs = 0;
+  let actx = null;
+  let muted = false;
+  let selftestRuntime = '';
+
+  // 引力弹弓：起跳瞬间脚下有波前经过，跳得更远
+  const BOOST_FACTOR = 1.32;
+  const BOOST_RADIUS = 0.55;
+  // 对方落子后，波要走完这一小段，期间不能跃迁
+  const WAVE_LOCK = 1.8;
+
+  const state = {
+    mode: 'start',
+    controlMode: 'solo',
+    arena: 0,
+    phase: 'aim',
+    currentPlayer: 0,
+    pos: [{ c: 0, r: 0 }, { c: 6, r: 6 }],
+    lives: [MAX_LIVES, MAX_LIVES],
+    charge: 0,
+    charging: false,
+    aimScreen: null,
+    aimAngle: Math.atan2(6, 6),
+    waves: [],
+    jumpAnim: null,
+    fallAnim: null,
+    time: 0,
+    turns: 0,
+    shake: 0,
+    flash: 0,
+    interference: false,
+    bounce: false,
+    selfDamage: false,
+    stackedDamage: false,
+    oneShotWave: true,
+    lockUntil: 0,
+    viewTilt: 0.5,
+    taiSpin: 0.28,
+    rhythmB: true,
+    bpm: 90,
+    metronome: false,
+    lastBeat: 0,
+    beatPulse: 0,
+    hitBlink: [0, 0],
+    keys: { a: false, d: false, left: false, right: false },
+    aiDifficulty: 'normal',
+    aiThinking: false,
+    aiTimer: null,
+    simulating: false,
+    winner: -1,
+    bannerTimer: null,
+    hintTimer: null
+  };
+
+  // ---------- 基础 ----------
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+
+  function rhythmScale() {
+    if (!state.rhythmB) return 1;
+    return clamp(state.bpm / 90, 0.5, 1.8);
+  }
+
+  function effectiveTaiSpin() {
+    return state.taiSpin * rhythmScale();
+  }
+
+  function hexA(hex, a) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+  }
+
+  function roundRect(c, x, y, w, h, r) {
+    const rr = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
+    c.beginPath();
+    c.moveTo(x + rr, y);
+    c.arcTo(x + w, y, x + w, y + h, rr);
+    c.arcTo(x + w, y + h, x, y + h, rr);
+    c.arcTo(x, y + h, x, y, rr);
+    c.arcTo(x, y, x + w, y, rr);
+    c.closePath();
+  }
+
+  function toScreen(c, r) {
+    return {
+      x: boardCX + (c - r) * tileW / 2,
+      y: boardCY + (c + r - (GRID - 1)) * tileH / 2
+    };
+  }
+
+  function fromScreen(x, y) {
+    const dx = x - boardCX;
+    const dy = y - boardCY + (GRID - 1) * tileH / 2;
+    return { c: dx / tileW + dy / tileH, r: dy / tileH - dx / tileW };
+  }
+
+  function tileAt(c, r) {
+    if (c < 0 || c >= GRID || r < 0 || r >= GRID) return null;
+    return { c: c, r: r };
+  }
+
+  function dist(a, b) { return Math.hypot(a.c - b.c, a.r - b.r); }
+
+  function pointSegmentDistance(p, a, b) {
+    const abx = b.c - a.c, aby = b.r - a.r;
+    const apx = p.c - a.c, apy = p.r - a.r;
+    const len2 = abx * abx + aby * aby;
+    let t = len2 ? (apx * abx + apy * aby) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const dx = a.c + abx * t - p.c;
+    const dy = a.r + aby * t - p.r;
+    return Math.hypot(dx, dy);
+  }
+
+  function blackHoles() {
+    return [{ c: 2, r: 3 }, { c: 4, r: 3 }];
+  }
+
+  function isBlackHole(c, r) {
+    return (c === 2 && r === 3) || (c === 4 && r === 3);
+  }
+
+  function applyFieldDeflection(c, r, arena, spin) {
+    if (arena === 2) {
+      const ang = spin * 0.9;
+      const dx = c - 3, dy = r - 3;
+      const cs = Math.cos(ang), sn = Math.sin(ang);
+      return { c: 3 + dx * cs - dy * sn, r: 3 + dx * sn + dy * cs };
+    }
+    if (arena === 3) {
+      let nc = c, nr = r;
+      const holes = blackHoles();
+      for (let i = 0; i < holes.length; i++) {
+        const dx = holes[i].c - nc, dy = holes[i].r - nr;
+        const d = Math.max(0.55, Math.hypot(dx, dy));
+        const pull = 0.55 * Math.exp(-d / 2.2) * rhythmScale();
+        nc += dx / d * pull;
+        nr += dy / d * pull;
+      }
+      return { c: nc, r: nr };
+    }
+    return { c: c, r: r };
+  }
+
+  function slitCrossing(pc, pr, c, r) {
+    const ps = pc + pr, cs = c + r;
+    if (!((ps < WALL_SUM && cs >= WALL_SUM) || (ps >= WALL_SUM && cs < WALL_SUM))) return null;
+    const denom = cs - ps;
+    const t = denom === 0 ? 0 : (WALL_SUM - ps) / denom;
+    const cc = pc + (c - pc) * t;
+    const rr = pr + (r - pr) * t;
+    const gaps = SLIT_GAPS;
+    for (let i = 0; i < gaps.length; i++) {
+      if (Math.hypot(cc - gaps[i].c, rr - gaps[i].r) <= GAP_RADIUS) {
+        return { pass: true, t: t, gap: gaps[i] };
+      }
+    }
+    return { pass: false, t: t };
+  }
+
+  function reflectSlit(p) {
+    const n = 1 / Math.SQRT2;
+    const dot = p.vc * n + p.vr * n;
+    p.vc -= 2 * dot * n;
+    p.vr -= 2 * dot * n;
+    p.c = p.prevC;
+    p.r = p.prevR;
+    // 关于 c + r = WALL_SUM 的镜像源，用于把反弹段排成连续弧线
+    const sc = p.srcC, sr = p.srcR;
+    p.srcC = WALL_SUM - sr;
+    p.srcR = WALL_SUM - sc;
+    p.bounced = true;
+    p.bounces = (p.bounces || 0) + 1;
+  }
+
+  function reflectEdge(p) {
+    if (p.c < EDGE_MIN) { p.c = 2 * EDGE_MIN - p.c; p.vc = -p.vc; p.srcC = 2 * EDGE_MIN - p.srcC; }
+    else if (p.c > EDGE_MAX) { p.c = 2 * EDGE_MAX - p.c; p.vc = -p.vc; p.srcC = 2 * EDGE_MAX - p.srcC; }
+    if (p.r < EDGE_MIN) { p.r = 2 * EDGE_MIN - p.r; p.vr = -p.vr; p.srcR = 2 * EDGE_MIN - p.srcR; }
+    else if (p.r > EDGE_MAX) { p.r = 2 * EDGE_MAX - p.r; p.vr = -p.vr; p.srcR = 2 * EDGE_MAX - p.srcR; }
+    p.bounced = true;
+    p.bounces = (p.bounces || 0) + 1;
+  }
+
+  function chargeToDist(c) {
+    return MIN_JUMP + (MAX_JUMP - MIN_JUMP) * clamp(c, 0, 1);
+  }
+
+  // 起跳那一刻，脚下有没有波前扫过
+  function waveBoostAt(c, r) {
+    for (let i = 0; i < state.waves.length; i++) {
+      const w = state.waves[i];
+      if (w.dead) continue;
+      for (let k = 0; k < w.particles.length; k++) {
+        const q = w.particles[k];
+        if (!q.alive) continue;
+        if (wavePower(q) < 0.4) continue;
+        if (Math.hypot(q.c - c, q.r - r) <= BOOST_RADIUS) return true;
+      }
+    }
+    return false;
+  }
+
+  function computeJump(me, aim, charge, fallback, opponent, arena, spin, boost) {
+    let dc = aim.c - me.c;
+    let dr = aim.r - me.r;
+    let len = Math.hypot(dc, dr);
+    if (len < 0.15) {
+      dc = fallback.c - me.c;
+      dr = fallback.r - me.r;
+      len = Math.hypot(dc, dr);
+    }
+    if (len < 0.15) { dc = 1; dr = 0; len = 1; }
+    const dirC = dc / len;
+    const dirR = dr / len;
+    const d = chargeToDist(charge) * (boost || 1);
+    const baseC = me.c + dirC * d;
+    const baseR = me.r + dirR * d;
+    const def = applyFieldDeflection(baseC, baseR, arena, spin);
+    const endC = def.c;
+    const endR = def.r;
+    const tc = Math.round(endC);
+    const tr = Math.round(endR);
+    const tile = tileAt(tc, tr);
+    const inside = !!tile && Math.abs(endC - tc) <= 0.5001 && Math.abs(endR - tr) <= 0.5001;
+    const occupied = !!tile && opponent && tile.c === opponent.c && tile.r === opponent.r;
+    const same = !!tile && tile.c === me.c && tile.r === me.r;
+    const suicide = arena === 3 && !!tile && isBlackHole(tile.c, tile.r);
+    return {
+      dirC: dirC, dirR: dirR, dist: d,
+      baseC: baseC, baseR: baseR,
+      endC: endC, endR: endR,
+      tile: tile, valid: inside && !occupied && !same,
+      suicide: suicide
+    };
+  }
+
+  function getAimBoard() {
+    const me = state.pos[state.currentPlayer];
+    const opp = state.pos[1 - state.currentPlayer];
+    if (state.controlMode === 'duo') {
+      return {
+        c: me.c + Math.cos(state.aimAngle) * MAX_JUMP,
+        r: me.r + Math.sin(state.aimAngle) * MAX_JUMP
+      };
+    }
+    if (state.aimScreen) {
+      const b = fromScreen(state.aimScreen.x, state.aimScreen.y);
+      return { c: b.c, r: b.r };
+    }
+    return { c: opp.c, r: opp.r };
+  }
+
+  function setAimForCurrent() {
+    const me = state.pos[state.currentPlayer];
+    const opp = state.pos[1 - state.currentPlayer];
+    state.aimAngle = Math.atan2(opp.r - me.r, opp.c - me.c);
+  }
+
+  function getCurrentJump() {
+    const me = state.pos[state.currentPlayer];
+    const opp = state.pos[1 - state.currentPlayer];
+    return computeJump(me, getAimBoard(), state.charge, { c: opp.c, r: opp.r }, opp, state.arena, effectiveTaiSpin());
+  }
+
+  // ---------- 尺寸 / 背景 ----------
+  function makeStars() {
+    stars = [];
+    const n = Math.floor(W * H / 9000);
+    for (let i = 0; i < n; i++) {
+      stars.push({
+        x: Math.random() * W,
+        y: Math.random() * H * 0.85,
+        r: 0.4 + Math.random() * 1.2,
+        p: Math.random() * Math.PI * 2,
+        s: 0.5 + Math.random() * 1.5
+      });
+    }
+  }
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.round(W * DPR);
+    canvas.height = Math.round(H * DPR);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    boardCX = W / 2;
+    boardCY = H * 0.56;
+    const baseH = TW * state.viewTilt;
+    const fitW = (W * 0.86) / ((GRID - 1) * TW);
+    const fitH = (H * 0.56) / ((GRID - 1) * baseH);
+    const s = Math.min(1, fitW, fitH);
+    tileW = TW * s;
+    tileH = baseH * s;
+    state.aimScreen = null;
+    makeStars();
+  }
+
+  // ---------- 对局流程 ----------
+  function resetMatch() {
+    state.phase = 'aim';
+    state.currentPlayer = 0;
+    state.pos = [{ c: 0, r: 0 }, { c: 6, r: 6 }];
+    state.lives = [MAX_LIVES, MAX_LIVES];
+    state.charge = 0;
+    state.charging = false;
+    state.aimScreen = null;
+    state.waves = [];
+    state.jumpAnim = null;
+    state.fallAnim = null;
+    state.turns = 0;
+    state.shake = 0;
+    state.flash = 0;
+    state.hitBlink = [0, 0];
+    state.lastBeat = 0;
+    state.beatPulse = 0;
+    state.keys = { a: false, d: false, left: false, right: false };
+    state.winner = -1;
+    clearAITimer();
+    state.aiThinking = false;
+    particles = [];
+    floats = [];
+    state.lockUntil = 0;
+    setAimForCurrent();
+    updateHud();
+  }
+
+  function resetToStart() {
+    state.mode = 'start';
+    resetMatch();
+    document.getElementById('start').classList.remove('hidden');
+    document.getElementById('gameover').classList.add('hidden');
+    document.getElementById('hud').classList.add('hidden');
+    document.getElementById('menuBtn').classList.add('hidden');
+    document.getElementById('turnBanner').classList.remove('show');
+    document.getElementById('hint').classList.remove('show');
+  }
+
+  function setArena(index) {
+    state.arena = clamp(Math.round(index), 0, 3);
+    const chips = document.querySelectorAll('.arena-chip');
+    for (let i = 0; i < chips.length; i++) {
+      const on = Number(chips[i].dataset.arena) === state.arena;
+      chips[i].classList.toggle('selected', on);
+    }
+    const desc = document.getElementById('arenaDesc');
+    if (desc) desc.textContent = ARENA_DESCS[state.arena];
+    updateHud();
+    if (W > 0) render();
+  }
+
+  function setControlMode(mode) {
+    state.controlMode = mode === 'duo' ? 'duo' : (mode === 'ai' ? 'ai' : 'solo');
+    clearAITimer();
+    state.aiThinking = false;
+    const chips = document.querySelectorAll('.mode-chip');
+    for (let i = 0; i < chips.length; i++) {
+      chips[i].classList.toggle('selected', chips[i].dataset.mode === state.controlMode);
+    }
+    const aiRow = document.getElementById('aiDiffRow');
+    const aiDesc = document.getElementById('aiDiffDesc');
+    if (aiRow) aiRow.classList.toggle('hidden', state.controlMode !== 'ai');
+    if (aiDesc) aiDesc.classList.toggle('hidden', state.controlMode !== 'ai');
+    const desc = document.getElementById('modeDesc');
+    if (desc) {
+      desc.textContent = state.controlMode === 'duo'
+        ? '双人：蓝方 A/D 转向 + 空格；红方 ←/→ 转向 + 回车。轮到你才能动。'
+        : (state.controlMode === 'ai'
+          ? '单人：你控蓝方，AI 控红方；先选难度。'
+          : '测试：鼠标瞄准，按住蓄力；你轮流控蓝红两颗彗星。');
+    }
+    if (aiDesc) aiDesc.textContent = AI_DIFF_DESCS[state.aiDifficulty];
+    updateHud();
+    if (W > 0) render();
+  }
+
+  function setAIDifficulty(diff) {
+    state.aiDifficulty = AI_DIFF_NAMES[diff] ? diff : 'normal';
+    const chips = document.querySelectorAll('.diff-chip');
+    for (let i = 0; i < chips.length; i++) {
+      chips[i].classList.toggle('selected', chips[i].dataset.diff === state.aiDifficulty);
+    }
+    const desc = document.getElementById('aiDiffDesc');
+    if (desc) desc.textContent = AI_DIFF_DESCS[state.aiDifficulty];
+    updateHud();
+    if (W > 0) render();
+  }
+
+  function startGame() {
+    resetMatch();
+    // 简历版锁定的规则：基础场 + 边缘反射 + 单人 AI
+    if (RESUME_DEMO) {
+      state.arena = 0;
+      state.controlMode = 'ai';
+      state.bounce = true;
+      state.interference = false;
+      state.selfDamage = false;
+      state.oneShotWave = true;
+      state.stackedDamage = false;
+      state.aiDifficulty = 'normal';
+    }
+    state.mode = 'playing';
+    state.time = 0;
+    state.lastBeat = 0;
+    state.beatPulse = 0;
+    state.aiThinking = false;
+    clearAITimer();
+    document.getElementById('start').classList.add('hidden');
+    document.getElementById('gameover').classList.add('hidden');
+    document.getElementById('hud').classList.remove('hidden');
+    document.getElementById('menuBtn').classList.remove('hidden');
+    audioInit();
+    updateHud();
+    showTurnBanner();
+    if (state.controlMode === 'ai') {
+      setHint('单人：你是蓝方，AI 是红方。AI 跃迁后会提示你。', 3000);
+    } else {
+      setHint(state.controlMode === 'duo'
+        ? '双人模式：底部是当前玩家的按键。'
+        : '测试模式：鼠标瞄准，按住蓄力。', 3200);
+    }
+  }
+
+  function endGame(winner, note) {
+    if (state.mode !== 'playing') return;
+    state.mode = 'gameover';
+    state.phase = 'over';
+    state.charging = false;
+    state.charge = 0;
+    state.waves = [];
+    state.jumpAnim = null;
+    state.fallAnim = null;
+    state.winner = winner;
+    clearAITimer();
+    state.aiThinking = false;
+    document.getElementById('gameoverTitle').textContent = PLAYER_NAMES[winner] + '胜';
+    document.getElementById('finalScore').textContent =
+      '蓝方 ' + state.lives[0] + ' : ' + state.lives[1] + ' 红方 · 共 ' + state.turns + ' 回合' +
+      (note ? ' · ' + note : '');
+    document.getElementById('gameover').classList.remove('hidden');
+    document.getElementById('hud').classList.add('hidden');
+    document.getElementById('menuBtn').classList.add('hidden');
+    document.getElementById('turnBanner').classList.remove('show');
+    document.getElementById('hint').classList.remove('show');
+    playWin();
+  }
+
+  // ---------- 蓄力 / 起跳 ----------
+  function beginCharge(event) {
+    if (state.mode !== 'playing' || state.phase !== 'aim' || state.charging) return;
+    if (state.controlMode === 'ai' && state.currentPlayer !== 0) return;
+    // 对方的波还没走完，这一手锁住
+    if (state.time < state.lockUntil) {
+      setHint('等对方的引力波走完再跃迁', 900);
+      return;
+    }
+    if (event) state.aimScreen = { x: event.clientX, y: event.clientY };
+    state.charging = true;
+    state.charge = 0;
+  }
+
+  function releaseCharge() {
+    if (!state.charging) return;
+    state.charging = false;
+    const c = state.charge;
+    state.charge = 0;
+    if (state.mode !== 'playing' || state.phase !== 'aim') return;
+    startJump(c);
+  }
+
+  function startJump(charge) {
+    const p = state.currentPlayer;
+    const me = state.pos[p];
+    const opp = state.pos[1 - p];
+    const aim = getAimBoard();
+    const boost = waveBoostAt(me.c, me.r) ? BOOST_FACTOR : 1;
+    if (boost > 1) {
+      const sp = toScreen(me.c, me.r);
+      burst(sp.x, sp.y - 26, 20, '#b8f0ff');
+      addFloat(p, '引力弹弓', '#b8f0ff');
+    }
+    const j = computeJump(me, aim, charge, { c: opp.c, r: opp.r }, opp, state.arena, effectiveTaiSpin(), boost);
+    state.phase = 'jumping';
+    state.jumpAnim = {
+      player: p,
+      startC: me.c, startR: me.r,
+      endC: j.endC, endR: j.endR,
+      tileC: j.tile ? j.tile.c : null,
+      tileR: j.tile ? j.tile.r : null,
+      t: 0, dur: 0.55, h: 70 + j.dist * 18,
+      miss: !j.valid,
+      suicide: j.suicide
+    };
+    playJump();
+  }
+
+  function updateJump(dt) {
+    if (!state.jumpAnim) return;
+    const a = state.jumpAnim;
+    a.t += dt;
+    if (a.t >= a.dur) {
+      if (a.miss) {
+        state.phase = 'falling';
+        state.fallAnim = { player: a.player, c: a.endC, r: a.endR, t: 0, dur: 0.55 };
+        state.jumpAnim = null;
+      } else {
+        state.pos[a.player] = { c: a.tileC, r: a.tileR };
+        state.jumpAnim = null;
+        if (a.suicide) {
+          spawnFieldFlash(a.tileC, a.tileR, '#f6f0ff');
+          state.shake = 12;
+          state.flash = 1;
+          playHit();
+          state.lives[a.player] = 0;
+          endGame(1 - a.player, PLAYER_NAMES[a.player] + '坠入奇点');
+          return;
+        }
+        onLanding(a.player);
+      }
+    }
+  }
+
+  function updateFall(dt) {
+    if (!state.fallAnim) return;
+    const f = state.fallAnim;
+    f.t += dt;
+    if (f.t >= f.dur) {
+      state.fallAnim = null;
+      onMiss(f.player);
+    }
+  }
+
+  function onLanding(p) {
+    const me = state.pos[p];
+    const target = 1 - p;
+
+    spawnWave(me, p);
+    state.currentPlayer = target;
+    state.lockUntil = state.time + WAVE_LOCK;
+    state.phase = 'aim';
+    state.charge = 0;
+    state.charging = false;
+    state.aimScreen = null;
+    setAimForCurrent();
+    state.turns++;
+    addFloat(p, '跃迁', PLAYER_COLORS[p].main);
+    burst(toScreen(me.c, me.r).x, toScreen(me.c, me.r).y, 12, PLAYER_COLORS[p].main);
+    updateHud();
+    showTurnBanner();
+    playLand();
+    if (state.turns === 1) {
+      setHint('引力波放出来了。它是真的在走，会被星门和奇点改变。', 2800);
+    }
+    if (state.controlMode === 'ai' && !state.simulating) {
+      if (state.currentPlayer === 1) maybeScheduleAI();
+      else setHint('AI 已跃迁，轮到你了。', 2000);
+    }
+  }
+
+  function onMiss(p) {
+    const alive = damagePiece(p, 'fall');
+    if (!alive) return;
+    state.currentPlayer = 1 - p;
+    state.phase = 'aim';
+    state.charge = 0;
+    state.charging = false;
+    state.aimScreen = null;
+    setAimForCurrent();
+    state.turns++;
+    updateHud();
+    showTurnBanner();
+    setHint('落空，换对方。', 2000);
+    if (state.controlMode === 'ai' && !state.simulating) {
+      if (state.currentPlayer === 1) maybeScheduleAI();
+      else setHint('AI 已跃迁，轮到你了。', 2000);
+    }
+  }
+
+  function damagePiece(p, reason) {
+    state.lives[p]--;
+    state.shake = 14;
+    state.flash = 1;
+    addFloat(p, '-1', '#ff6b6b');
+    playHit();
+    state.hitBlink[p] = 0.7;
+    if (p === state.currentPlayer && state.charging) {
+      state.charging = false;
+      state.charge = 0;
+    }
+    updateHud();
+    if (state.lives[p] <= 0) {
+      endGame(1 - p);
+      return false;
+    }
+    if (p === state.currentPlayer) setHint('被引力波扫中了。波还在走，继续跃迁。', 2000);
+    return true;
+  }
+
+  function spawnWave(source, owner) {
+    if (state.stackedDamage) {
+      // 叠加规则：每方只保留自己最近一道波，自己下次落子才替换；对手的波不动
+      for (let i = state.waves.length - 1; i >= 0; i--) {
+        if (state.waves[i].owner === owner) state.waves.splice(i, 1);
+      }
+    } else if (!state.interference) {
+      state.waves = [];
+    }
+    const count = WAVE_PARTICLES;
+    const parts = [];
+    for (let i = 0; i < count; i++) {
+      const ang = i / count * Math.PI * 2;
+      parts.push({
+        c: source.c, r: source.r,
+        prevC: source.c, prevR: source.r,
+        srcC: source.c, srcR: source.r,
+        vc: Math.cos(ang) * WAVE_SPEED,
+        vr: Math.sin(ang) * WAVE_SPEED,
+        traveled: 0,
+        delay: WAVE_WARMUP,
+        bounced: false,
+        bounces: 0,
+        alive: true
+      });
+    }
+    state.waves.push({
+      id: Date.now() + Math.random(),
+      owner: owner,
+      color: PLAYER_COLORS[owner].main,
+      source: { c: source.c, r: source.r },
+      age: 0,
+      particles: parts,
+      slitDone: [false, false],
+      hit: [false, false]
+    });
+  }
+
+  // 双缝：以缝口为次波源，沿「入射方向」发一道窄波束（惠更斯原理）。
+  // 方向取波源到缝口的连线，但最多偏离法线 45°：否则擦着墙入射时，波束会贴着墙走、被墙的裁剪吞掉。
+  function spawnSlitWave(w, gap, side) {
+    const count = 40;
+    const dx = gap.c - w.source.c;
+    const dy = gap.r - w.source.r;
+    const dist = Math.hypot(dx, dy);
+    const normal = side < 0 ? Math.PI / 4 : Math.PI * 5 / 4;
+    let base = normal;
+    if (dist > 1e-4) {
+      let diff = Math.atan2(dy, dx) - normal;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      base = normal + clamp(diff, -Math.PI / 4, Math.PI / 4);
+    }
+    const spread = Math.PI / 10;
+    // 起点必须稍微离开墙面，否则会被当成「又一次穿墙」立刻吸收（红波向上时尤其明显）
+    const eps = 0.02;
+    const oc = gap.c + Math.cos(base) * eps;
+    const or = gap.r + Math.sin(base) * eps;
+    for (let i = 0; i < count; i++) {
+      const u = count > 1 ? i / (count - 1) : 0.5;
+      // sin 映射：中间角度采样更密，边缘更疏，形成有限宽度的波束
+      const a = base + Math.sin((u * 2 - 1) * Math.PI / 2) * spread;
+      w.particles.push({
+        c: oc, r: or,
+        prevC: oc, prevR: or,
+        srcC: gap.c, srcR: gap.r,
+        vc: Math.cos(a) * WAVE_SPEED,
+        vr: Math.sin(a) * WAVE_SPEED,
+        traveled: 0,
+        delay: w.age,
+        bounced: false,
+        bounces: 0,
+        slit: true,
+        fan: true,
+        alive: true
+      });
+    }
+  }
+
+  function updateAim(dt) {
+    if (state.mode !== 'playing' || state.phase !== 'aim' || state.controlMode !== 'duo') return;
+    let dir = 0;
+    if (state.currentPlayer === 0) {
+      if (state.keys.a) dir -= 1;
+      if (state.keys.d) dir += 1;
+    } else {
+      if (state.keys.left) dir -= 1;
+      if (state.keys.right) dir += 1;
+    }
+    if (dir) state.aimAngle += dir * AIM_ROT * dt;
+  }
+
+  function nearestWave() {
+    const me = state.pos[state.currentPlayer];
+    let best = null;
+    let bestD = 99;
+    for (let i = 0; i < state.waves.length; i++) {
+      const w = state.waves[i];
+      for (let j = 0; j < w.particles.length; j++) {
+        const p = w.particles[j];
+        if (!p.alive) continue;
+        const d = Math.hypot(p.c - me.c, p.r - me.r);
+        if (d < bestD) {
+          bestD = d;
+          best = w;
+        }
+      }
+    }
+    return best ? { wave: best, d: bestD } : null;
+  }
+
+  // 每反射一次衰减一次：越弹越弱，弹到第四次就不再伤人
+  function wavePower(p) {
+    return Math.pow(0.72, p.bounces || 0);
+  }
+
+  // 叠加规则：场上必须同时存在对方的波，才算"两层波叠在一起"，此时命中才扣命
+  function hasOpposingWave(owner) {
+    for (let i = 0; i < state.waves.length; i++) {
+      if (state.waves[i].owner !== owner) return true;
+    }
+    return false;
+  }
+
+  // 叠加规则下，波不按 5.5 秒寿终，只有等自己下次落子替换、或粒子全部飞出棋盘才消失
+  function waveHasAliveParticle(w) {
+    for (let i = 0; i < w.particles.length; i++) {
+      if (w.particles[i].alive) return true;
+    }
+    return false;
+  }
+
+  function updateWaves(dt) {
+    for (let wi = state.waves.length - 1; wi >= 0; wi--) {
+      const w = state.waves[wi];
+      if (w.dead) { state.waves.splice(wi, 1); continue; }
+      w.age += dt;
+      if (state.stackedDamage) {
+        if (!waveHasAliveParticle(w)) { state.waves.splice(wi, 1); continue; }
+      } else if (w.age >= WAVE_LIFE) {
+        state.waves.splice(wi, 1);
+        continue;
+      }
+      if (w.age < WAVE_WARMUP) continue;
+
+      // 双缝：按解析距离触发次波源，每个缝口一次。
+      if (state.arena === 1) {
+        if (!w.slitDone) w.slitDone = [false, false];
+        const srcSide = (w.source.c + w.source.r) < WALL_SUM ? -1 : 1;
+        const front = WAVE_SPEED * Math.max(0, w.age - WAVE_WARMUP);
+        for (let gi = 0; gi < SLIT_GAPS.length; gi++) {
+          if (w.slitDone[gi]) continue;
+          const gap = SLIT_GAPS[gi];
+          const d = Math.hypot(w.source.c - gap.c, w.source.r - gap.r);
+          if (front >= d) {
+            w.slitDone[gi] = true;
+            spawnSlitWave(w, gap, srcSide);
+          }
+        }
+      }
+
+      const holes = blackHoles();
+      for (let pi = 0; pi < w.particles.length; pi++) {
+        if (w.dead) break;
+        const p = w.particles[pi];
+        if (!p.alive) continue;
+        p.prevC = p.c;
+        p.prevR = p.r;
+
+        if (state.arena === 3) {
+          for (let hi = 0; hi < holes.length; hi++) {
+            const dx = holes[hi].c - p.c;
+            const dy = holes[hi].r - p.r;
+            const d2 = dx * dx + dy * dy + 0.2;
+            const d = Math.sqrt(d2);
+            const f = BH_WAVE * rhythmScale() / d2;
+            p.vc += dx / d * f * dt;
+            p.vr += dy / d * f * dt;
+          }
+        }
+        if (state.arena === 2) {
+          const dx = p.c - 3;
+          const dy = p.r - 3;
+          const d = Math.hypot(dx, dy) + 0.001;
+          const f = TAI_WAVE * effectiveTaiSpin() / (d + 0.5);
+          p.vc += (-dy / d) * f * dt;
+          p.vr += (dx / d) * f * dt;
+        }
+
+        p.c += p.vc * dt;
+        p.r += p.vr * dt;
+        p.traveled += Math.hypot(p.c - p.prevC, p.r - p.prevR);
+
+        if (state.arena === 1 && !p.slit) {
+          const cross = slitCrossing(p.prevC, p.prevR, p.c, p.r);
+          if (cross && !cross.pass) {
+            if (state.bounce) {
+              reflectSlit(p);
+            } else {
+              spawnFieldFlash(p.c, p.r);
+              p.alive = false;
+              continue;
+            }
+          } else if (cross && cross.pass) {
+            if (p.fan) {
+              // 过缝波可以从缝口再穿回去，不做吸收
+              p.slit = false;
+            } else {
+              // 原波在缝口被吸收，透射完全由上面的解析次波源表示
+              p.alive = false;
+              continue;
+            }
+          }
+        }
+        // 透射粒子只在出生后的一小段距离内免疫墙体，离开墙面后恢复普通规则；
+        // 否则它之后反弹回来再撞墙时会直接穿过去（实测的第二段碰撞失效）。
+        if (p.slit && p.traveled > 0.15) p.slit = false;
+
+        if (p.c < EDGE_MIN || p.c > EDGE_MAX || p.r < EDGE_MIN || p.r > EDGE_MAX) {
+          if (state.bounce) {
+            reflectEdge(p);
+          } else {
+            p.alive = false;
+            continue;
+          }
+        }
+
+        if (state.arena === 3) {
+          for (let hi = 0; hi < holes.length; hi++) {
+            if (Math.hypot(p.c - holes[hi].c, p.r - holes[hi].r) < 0.28) {
+              spawnFieldFlash(p.c, p.r);
+              p.alive = false;
+              break;
+            }
+          }
+          if (!p.alive) continue;
+        }
+
+        if (w.hit[0] && w.hit[1]) continue;
+        const power = wavePower(p);
+        if (power < 0.3) continue;
+        const hitR = HIT_RADIUS * Math.max(0.45, power);
+        for (let pieceIndex = 0; pieceIndex < 2; pieceIndex++) {
+          if (w.hit[pieceIndex]) continue;
+          if (pieceIndex === w.owner && !state.selfDamage) continue;
+          if (pieceIndex === state.currentPlayer && (state.phase === 'jumping' || state.phase === 'falling')) continue;
+          if (pieceIndex === w.owner && p.traveled < 1.2) continue;
+          const piece = state.pos[pieceIndex];
+          if (pointSegmentDistance(piece, { c: p.prevC, r: p.prevR }, { c: p.c, r: p.r }) < hitR) {
+            let dealt = false;
+            if (!state.stackedDamage) {
+              w.hit[pieceIndex] = true;
+              damagePiece(pieceIndex, 'wave');
+              dealt = true;
+              if (state.mode !== 'playing') return;
+            } else if (hasOpposingWave(w.owner)) {
+              // 只有自己这一层波时打不中人；场上还有对方的波，两层叠在一起才生效
+              w.hit[pieceIndex] = true;
+              damagePiece(pieceIndex, 'wave');
+              dealt = true;
+              if (state.mode !== 'playing') return;
+            }
+            // 演示版：这一击生效后，这道波立刻消散（下次要重新落子才有波）
+            if (dealt && state.oneShotWave) {
+              w.dead = true;
+              burst(toScreen(p.c, p.r).x, toScreen(p.c, p.r).y, 16, w.color);
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  function update(dt) {
+    state.time += dt;
+    if (state.shake > 0) state.shake = Math.max(0, state.shake - dt * 26);
+    if (state.flash > 0) state.flash = Math.max(0, state.flash - dt * 3);
+    for (let i = 0; i < 2; i++) {
+      if (state.hitBlink[i] > 0) state.hitBlink[i] = Math.max(0, state.hitBlink[i] - dt);
+    }
+    updateParticles(dt);
+    updateFloats(dt);
+    if (state.mode === 'playing') {
+      updateAim(dt);
+      if (state.rhythmB) {
+        const interval = 60 / state.bpm;
+        if (state.time - state.lastBeat >= interval) {
+          state.lastBeat = state.time;
+          state.beatPulse = 1;
+          if (state.metronome) playBeat();
+        }
+      }
+      state.beatPulse = Math.max(0, state.beatPulse - dt * 3);
+      if (state.charging && state.phase === 'aim') {
+        state.charge = Math.min(1, state.charge + dt / CHARGE_TIME);
+      }
+      updateJump(dt);
+      updateFall(dt);
+      updateWaves(dt);
+      updateWaveBar();
+    }
+  }
+
+  // ---------- HUD ----------
+  function renderLives(el, count, cls) {
+    el.innerHTML = '';
+    for (let i = 0; i < MAX_LIVES; i++) {
+      const d = document.createElement('span');
+      d.className = 'life ' + (i < count ? cls : 'dead');
+      el.appendChild(d);
+    }
+  }
+
+  function updateHud() {
+    renderLives(document.getElementById('blueLives'), state.lives[0], 'blue');
+    renderLives(document.getElementById('redLives'), state.lives[1], 'red');
+    const turn = document.getElementById('turnText');
+    let txt = '蓝方先手';
+    if (state.mode === 'playing') {
+      const name = state.controlMode === 'ai'
+        ? (state.currentPlayer === 0 ? '你' : 'AI')
+        : PLAYER_NAMES[state.currentPlayer];
+      if (state.phase === 'jumping') txt = name + '起跳';
+      else if (state.phase === 'falling') txt = name + '落空';
+      else if (state.controlMode === 'ai' && state.currentPlayer === 1) txt = 'AI 思考中';
+      else txt = name + '回合';
+    } else if (state.mode === 'gameover') {
+      txt = '对局结束';
+    }
+    turn.textContent = txt;
+    turn.className = 'turn ' + (state.currentPlayer === 0 ? 'blue' : 'red');
+    const bp = document.getElementById('bluePanel');
+    const rp = document.getElementById('redPanel');
+    bp.classList.toggle('active', state.mode === 'playing' && state.currentPlayer === 0);
+    rp.classList.toggle('active', state.mode === 'playing' && state.currentPlayer === 1);
+    let badgeText = ARENA_NAMES[state.arena] + ' · ' + (state.controlMode === 'duo'
+      ? '双人'
+      : (state.controlMode === 'ai' ? '单人 AI · ' + AI_DIFF_NAMES[state.aiDifficulty] : '测试'));
+    if (state.rhythmB) badgeText += ' · B ' + state.bpm;
+    document.getElementById('arenaBadge').textContent = badgeText;
+    const control = document.getElementById('controlHint');
+    if (control) {
+      if (state.mode === 'playing' && state.controlMode === 'duo') {
+        control.textContent = state.currentPlayer === 0
+          ? '蓝方：A/D 转向 · 按住空格跃迁'
+          : '红方：←/→ 转向 · 按住回车跃迁';
+      } else if (state.controlMode === 'ai') {
+        control.textContent = state.currentPlayer === 0
+          ? '你是蓝方：鼠标瞄准 · 按住蓄力 · 松开跃迁'
+          : 'AI 正在想…';
+      } else {
+        control.textContent = '鼠标瞄准 · 按住蓄力 · 松开跃迁';
+      }
+    }
+    updateWaveBar();
+  }
+
+  function updateWaveBar() {
+    const fill = document.getElementById('wavefill');
+    const track = fill.parentElement;
+    const timeEl = document.getElementById('waveTime');
+    const near = state.mode === 'playing' ? nearestWave() : null;
+    if (near) {
+      const p = clamp(1 - near.d / 8, 0, 1);
+      fill.style.width = (p * 100).toFixed(1) + '%';
+      fill.style.background = near.wave.color;
+      track.classList.toggle('danger', p > 0.62);
+      if (state.stackedDamage) {
+        timeEl.textContent = near.d.toFixed(1) + ' 格 · 常驻';
+      } else {
+        const left = Math.max(0, WAVE_LIFE - near.wave.age);
+        timeEl.textContent = near.d.toFixed(1) + ' 格 · 还剩 ' + left.toFixed(1) + 's';
+      }
+    } else {
+      fill.style.width = '0%';
+      fill.style.background = '';
+      track.classList.remove('danger');
+      timeEl.textContent = '安全';
+    }
+  }
+
+  function showTurnBanner() {
+    if (state.mode !== 'playing') return;
+    const el = document.getElementById('turnBanner');
+    el.textContent = state.controlMode === 'ai'
+      ? (state.currentPlayer === 0 ? '轮到你了' : 'AI 思考中…')
+      : (PLAYER_NAMES[state.currentPlayer] + '回合');
+    el.className = 'turn-banner show ' + (state.currentPlayer === 0 ? 'blue' : 'red');
+    if (state.bannerTimer) clearTimeout(state.bannerTimer);
+    state.bannerTimer = setTimeout(() => el.classList.remove('show'), 1200);
+  }
+
+  function setHint(text, ms) {
+    const el = document.getElementById('hint');
+    el.textContent = text;
+    el.classList.add('show');
+    if (state.hintTimer) clearTimeout(state.hintTimer);
+    state.hintTimer = setTimeout(() => el.classList.remove('show'), ms || 2200);
+  }
+
+  // ---------- 单人 AI ----------
+  function clearAITimer() {
+    if (state.aiTimer) { clearTimeout(state.aiTimer); state.aiTimer = null; }
+    state.aiThinking = false;
+  }
+
+  function maybeScheduleAI() {
+    if (state.controlMode !== 'ai' || state.simulating) return;
+    if (state.mode !== 'playing' || state.currentPlayer !== 1 || state.phase !== 'aim') return;
+    clearAITimer();
+    state.aiThinking = true;
+    updateHud();
+    showTurnBanner();
+    setHint('AI 正在想…', 1200);
+    const delay = state.aiDifficulty === 'hard' ? 520 : (state.aiDifficulty === 'normal' ? 460 : 400);
+    state.aiTimer = setTimeout(runAIMove, delay);
+  }
+
+  function runAIMove() {
+    state.aiTimer = null;
+    if (state.controlMode !== 'ai' || state.simulating || state.currentPlayer !== 1 ||
+        state.mode !== 'playing' || state.phase !== 'aim') {
+      state.aiThinking = false;
+      updateHud();
+      return;
+    }
+    // 对方的波还没走完，AI 也要等
+    if (state.time < state.lockUntil) {
+      state.aiTimer = setTimeout(runAIMove, (state.lockUntil - state.time) * 1000 + 80);
+      return;
+    }
+    const move = aiChooseMove(1, state.aiDifficulty);
+    state.aiThinking = false;
+    if (!move) {
+      // 兜底：AI 无路可走时把回合交还玩家，避免整局卡死
+      setHint('AI 无路可走，轮到你。', 2000);
+      state.currentPlayer = 0;
+      state.phase = 'aim';
+      setAimForCurrent();
+      updateHud();
+      showTurnBanner();
+      return;
+    }
+    state.aimScreen = toScreen(move.aimC, move.aimR);
+    state.charge = move.charge;
+    state.charging = false;
+    startJump(move.charge);
+    updateHud();
+  }
+
+  function aiCandidateList(me, opp, arena, spin) {
+    const out = [];
+    const seen = {};
+    for (let c = 0; c < GRID; c++) {
+      for (let r = 0; r < GRID; r++) {
+        if (c === me.c && r === me.r) continue;
+        for (let k = 0; k < AI_CHARGES.length; k++) {
+          const charge = AI_CHARGES[k];
+          const j = computeJump(me, { c: c, r: r }, charge, { c: opp.c, r: opp.r }, opp, arena, spin);
+          if (!j.valid || j.suicide) continue;
+          const key = j.tile.c + ',' + j.tile.r;
+          if (seen[key]) continue;
+          seen[key] = 1;
+          out.push({ aimC: c, aimR: r, charge: charge, tile: j.tile });
+        }
+      }
+    }
+    return out;
+  }
+
+  function aiStaticScore(tile, opp) {
+    let s = 0;
+    const d = dist(tile, opp);
+    // 双波叠加时单波不伤人：必须贴得更近，让两道波的波前在同一小段时间内都扫到对手
+    const press = state.stackedDamage ? 2.2 : 1.6;
+    const sweet = state.stackedDamage ? 1.2 : 1.6;
+    // 吃到波纹：落点离对手越近，波越可能在他跳开前命中（波速 1.6，人类反应约 1.2s → 1.9 格内有效）
+    s += press * (1 - Math.min(1, d / 5));
+    // 距离甜点：正常 1.6 格；叠加模式 1.2 格——够近能打到，又不至于贴脸被反打
+    s += 0.8 * Math.exp(-Math.pow(d - sweet, 2) / 1.6);
+    // 占据中心
+    s += 0.5 * (1 - dist(tile, AI_CENTER) / 4.24);
+    // 打自己：黑洞边 / 己伤开启时的回波风险
+    if (state.arena === 3) {
+      const holes = blackHoles();
+      for (let i = 0; i < holes.length; i++) {
+        if (dist(tile, holes[i]) < 1.15) s -= 0.45;
+        if (state.selfDamage && dist(tile, holes[i]) < 1.35) s -= 0.35;
+      }
+    }
+    return s;
+  }
+
+  function aiResponseScore(tile, aiTile) {
+    const d = dist(tile, aiTile);
+    let s = 0;
+    // 对方的波离 AI 越近，对 AI 威胁越大
+    s += 1.0 * (1 - Math.min(1, d / 6));
+    // 对方也怕 AI 的波；同一个距离，越近越危险
+    s -= 0.7 * (1 - Math.min(1, d / 6));
+    // 对方也想占中心
+    s += 0.35 * (1 - dist(tile, AI_CENTER) / 4.24);
+    return s;
+  }
+
+  // 人类侧模拟：只看一步（当下最优），加一点小噪声，代表"看得见眼前好处、但不会预判对手"的普通玩家
+  // 自测专用的可复现随机数：只影响模拟对局，不影响真实对局
+  let simSeed = 1;
+  function simRandom() {
+    simSeed = (simSeed * 1664525 + 1013904223) >>> 0;
+    return simSeed / 4294967296;
+  }
+
+  function aiHumanMove(player) {
+    const me = state.pos[player];
+    const opp = state.pos[1 - player];
+    const cands = aiCandidateList(me, opp, state.arena, effectiveTaiSpin());
+    if (!cands.length) return null;
+    let best = null;
+    let bestScore = -Infinity;
+    for (let i = 0; i < cands.length; i++) {
+      const s = aiStaticScore(cands[i].tile, opp) + (state.simulating ? simRandom() * 0.15 : Math.random() * 0.15);
+      if (s > bestScore) { bestScore = s; best = cands[i]; }
+    }
+    return best;
+  }
+
+  function aiChooseMove(player, difficulty) {
+    const me = state.pos[player];
+    const opp = state.pos[1 - player];
+    const arena = state.arena;
+    const spin = effectiveTaiSpin();
+    const cands = aiCandidateList(me, opp, arena, spin);
+    if (!cands.length) return null;
+    for (let i = 0; i < cands.length; i++) {
+      cands[i].base = aiStaticScore(cands[i].tile, opp);
+    }
+    // 简单：只看一步，而且常走不太好的棋——把候选按 base 升序排，从较差的 60% 里随机挑
+    if (difficulty === 'easy') {
+      cands.sort(function (a, b) { return a.base - b.base; });
+      const bad = cands.slice(0, Math.max(1, Math.ceil(cands.length * 0.6)));
+      return bad[state.simulating ? Math.floor(simRandom() * bad.length) : Math.floor(Math.random() * bad.length)];
+    }
+    // 普通/困难：看两步
+    cands.sort(function (a, b) { return b.base - a.base; });
+    const top = cands.slice(0, 12);
+    for (let i = 0; i < top.length; i++) {
+      const c = top[i];
+      const oppCands = aiCandidateList(opp, c.tile, arena, spin);
+      let bestOpp = null;
+      let bestOppScore = -Infinity;
+      for (let j = 0; j < oppCands.length; j++) {
+        const os = aiResponseScore(oppCands[j].tile, c.tile);
+        if (os > bestOppScore) { bestOppScore = os; bestOpp = oppCands[j]; }
+      }
+      const oppBestTile = bestOpp ? bestOpp.tile : opp;
+      const nextCands = aiCandidateList(c.tile, oppBestTile, arena, spin);
+      let nextBest = 0;
+      for (let j = 0; j < nextCands.length; j++) {
+        const ns = aiStaticScore(nextCands[j].tile, oppBestTile);
+        if (ns > nextBest) nextBest = ns;
+      }
+      const trap = difficulty === 'hard'
+        ? 0.55 * Math.max(0, bestOppScore) * Math.max(0, nextBest)
+        : 0;
+      const avoidWeight = difficulty === 'hard' ? 0.6 : 0.3;
+      const nextWeight = difficulty === 'hard' ? 0.9 : 0.4;
+      c.score = c.base - avoidWeight * bestOppScore + nextWeight * nextBest + trap;
+    }
+    top.sort(function (a, b) { return b.score - a.score; });
+    return top[0];
+  }
+
+  function simulateAIMatch(diff) {
+    simSeed = 20261112 + diff.length * 97;
+    setArena(0);
+    state.controlMode = 'ai';
+    state.aiDifficulty = diff;
+    state.simulating = true;
+    state.metronome = false;
+    state.rhythmB = true;
+    state.bpm = 90;
+    state.interference = false;
+    state.bounce = false;
+    state.selfDamage = false;
+    state.stackedDamage = false;
+    startGame();
+    state.simulating = true;
+    let guard = 0;
+    while (state.mode === 'playing' && state.turns < 120 && guard < 400) {
+      guard++;
+      const p = state.currentPlayer;
+      // 蓝方（玩家）反应 1.2s，代表普通人；红方（AI）按难度给反应时间——简单比人还慢，困难很快
+      const reaction = p === 0
+        ? 1.2
+        : (diff === 'easy' ? 1.3 : (diff === 'normal' ? 0.9 : 0.5));
+      let wait = 0;
+      while (wait < reaction && state.mode === 'playing') {
+        updateWaves(1 / 60);
+        wait += 1 / 60;
+      }
+      if (state.mode !== 'playing') break;
+      // 蓝方用"人类"策略（只看一步）；红方用对应难度的 AI
+      const move = p === 1 ? aiChooseMove(p, diff) : aiHumanMove(p);
+      if (!move) break;
+      state.aimScreen = toScreen(move.aimC, move.aimR);
+      state.charge = move.charge;
+      state.charging = false;
+      startJump(move.charge);
+      let steps = 0;
+      while ((state.jumpAnim || state.fallAnim) && steps < 180 && state.mode === 'playing') {
+        updateJump(1 / 60);
+        updateFall(1 / 60);
+        updateWaves(1 / 60);
+        steps++;
+      }
+    }
+    const result = {
+      difficulty: diff,
+      ended: state.mode === 'gameover',
+      winner: state.winner,
+      turns: state.turns,
+      lives: state.lives.slice()
+    };
+    state.simulating = false;
+    state.metronome = false;
+    state.mode = 'start';
+    return result;
+  }
+
+  function runAITests() {
+    const fails = [];
+    const info = [];
+    const check = (name, cond) => { if (!cond) fails.push(name); };
+
+    state.controlMode = 'ai';
+    state.aiDifficulty = 'normal';
+    state.simulating = true;
+    state.arena = 0;
+    resetMatch();
+    state.mode = 'playing';
+    state.rhythmB = true;
+    state.bpm = 90;
+
+    const cands = aiCandidateList(state.pos[1], state.pos[0], 0, effectiveTaiSpin());
+    check('AI 候选非空', cands.length > 0);
+    check('AI 候选合法', cands.every(function (c) {
+      return c.tile.c >= 0 && c.tile.c < GRID && c.tile.r >= 0 && c.tile.r < GRID &&
+        !(c.tile.c === state.pos[1].c && c.tile.r === state.pos[1].r) &&
+        !(c.tile.c === state.pos[0].c && c.tile.r === state.pos[0].r);
+    }));
+    const sample = cands.length ? cands[0] : null;
+    check('AI 打分有限', !!sample && Number.isFinite(aiStaticScore(sample.tile, state.pos[0])));
+
+    for (const diff of ['easy', 'normal', 'hard']) {
+      const m = aiChooseMove(1, diff);
+      check('AI 出招 ' + diff, !!m && m.tile.c >= 0 && m.tile.c < GRID && m.tile.r >= 0 && m.tile.r < GRID);
+    }
+
+    for (const diff of ['easy', 'normal', 'hard']) {
+      const r = simulateAIMatch(diff);
+      info.push(r);
+      check('AI 对局结束 ' + diff, r.ended);
+    }
+
+    state.simulating = false;
+    state.controlMode = 'solo';
+    state.mode = 'start';
+    resetToStart();
+    return { pass: fails.length === 0, fails: fails, info: info };
+  }
+
+  // ---------- 声音 ----------
+  function audioInit() {
+    if (!actx) {
+      try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { actx = null; }
+    }
+    if (actx && actx.state === 'suspended') actx.resume().catch(() => {});
+  }
+
+  function tone(freq, dur, type, vol, slide) {
+    if (!actx || muted) return;
+    try {
+      const o = actx.createOscillator();
+      const g = actx.createGain();
+      o.type = type || 'sine';
+      o.frequency.setValueAtTime(freq, actx.currentTime);
+      if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), actx.currentTime + dur);
+      g.gain.setValueAtTime(0, actx.currentTime);
+      g.gain.linearRampToValueAtTime(vol || 0.05, actx.currentTime + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur);
+      o.connect(g); g.connect(actx.destination);
+      o.start(); o.stop(actx.currentTime + dur + 0.02);
+    } catch (e) {}
+  }
+
+  function playJump() { tone(300, 0.12, 'sine', 0.05, 260); }
+  function playLand() { tone(150, 0.12, 'triangle', 0.05, -50); }
+  function playHit() { tone(95, 0.3, 'sawtooth', 0.07, -40); }
+  function playWin() { tone(520, 0.5, 'sine', 0.06, 180); }
+  function playSelect() { tone(420, 0.06, 'sine', 0.04, 80); }
+  function playBeat() {
+    if (muted || !state.metronome) return;
+    tone(720, 0.035, 'square', 0.02, -60);
+  }
+
+  function toggleMute() {
+    muted = !muted;
+    document.getElementById('muteBtn').textContent = muted ? '音效 关' : '音效 开';
+  }
+
+  // ---------- 绘制 ----------
+  function boardClipPath() {
+    const top = toScreen(0, 0);
+    const right = toScreen(6, 0);
+    const bottom = toScreen(6, 6);
+    const left = toScreen(0, 6);
+    ctx.beginPath();
+    ctx.moveTo(top.x, top.y - tileH / 2);
+    ctx.lineTo(right.x + tileW / 2, right.y);
+    ctx.lineTo(bottom.x, bottom.y + tileH / 2);
+    ctx.lineTo(left.x - tileW / 2, left.y);
+    ctx.closePath();
+  }
+
+  function drawBackground() {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#05030d');
+    g.addColorStop(0.5, '#0a0618');
+    g.addColorStop(1, '#03020a');
+    ctx.fillStyle = g;
+    ctx.fillRect(-40, -40, W + 80, H + 80);
+
+    // 两团星云：左上偏紫，右下偏青
+    const n1 = ctx.createRadialGradient(W * 0.16, H * 0.2, 0, W * 0.16, H * 0.2, W * 0.46);
+    n1.addColorStop(0, 'rgba(104,72,196,.16)');
+    n1.addColorStop(0.55, 'rgba(78,54,150,.06)');
+    n1.addColorStop(1, 'rgba(78,54,150,0)');
+    ctx.fillStyle = n1;
+    ctx.fillRect(-40, -40, W + 80, H + 80);
+
+    const n2 = ctx.createRadialGradient(W * 0.86, H * 0.78, 0, W * 0.86, H * 0.78, W * 0.42);
+    n2.addColorStop(0, 'rgba(46,140,170,.13)');
+    n2.addColorStop(0.6, 'rgba(30,96,130,.05)');
+    n2.addColorStop(1, 'rgba(30,96,130,0)');
+    ctx.fillStyle = n2;
+    ctx.fillRect(-40, -40, W + 80, H + 80);
+
+    for (let i = 0; i < stars.length; i++) {
+      const s = stars[i];
+      const a = 0.2 + 0.5 * (0.5 + 0.5 * Math.sin(state.time * s.s + s.p));
+      ctx.fillStyle = 'rgba(226,218,255,' + a.toFixed(2) + ')';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    const accent = ARENA_COLORS[state.arena];
+    const rg = ctx.createRadialGradient(boardCX, boardCY, 10, boardCX, boardCY, (GRID - 1) * tileW * 0.62);
+    rg.addColorStop(0, hexA(accent, 0.13));
+    rg.addColorStop(0.55, hexA(accent, 0.045));
+    rg.addColorStop(1, hexA(accent, 0));
+    ctx.fillStyle = rg;
+    ctx.beginPath();
+    ctx.ellipse(boardCX, boardCY, (GRID - 1) * tileW * 0.62, (GRID - 1) * tileH * 0.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawBoardShadow() {
+    ctx.save();
+    const g = ctx.createRadialGradient(
+      boardCX, boardCY + (GRID - 1) * tileH * 0.22, 10,
+      boardCX, boardCY + (GRID - 1) * tileH * 0.22, (GRID - 1) * tileW * 0.55
+    );
+    g.addColorStop(0, 'rgba(0,0,0,.3)');
+    g.addColorStop(0.6, 'rgba(0,0,0,.14)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(
+      boardCX, boardCY + (GRID - 1) * tileH * 0.28,
+      (GRID - 1) * tileW * 0.5, (GRID - 1) * tileH * 0.45,
+      0, 0, Math.PI * 2
+    );
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawTile(c, r) {
+    const p = toScreen(c, r);
+    const w = tileW, h = tileH;
+    const even = (c + r) % 2 === 0;
+    const accent = ARENA_COLORS[state.arena];
+    const depth = Math.max(4, h * 0.12);
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(3,10,14,.55)';
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y + h / 2);
+    ctx.lineTo(p.x + w / 2, p.y);
+    ctx.lineTo(p.x + w / 2, p.y + depth);
+    ctx.lineTo(p.x, p.y + h / 2 + depth);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(2,7,10,.7)';
+    ctx.beginPath();
+    ctx.moveTo(p.x - w / 2, p.y);
+    ctx.lineTo(p.x, p.y + h / 2);
+    ctx.lineTo(p.x, p.y + h / 2 + depth);
+    ctx.lineTo(p.x - w / 2, p.y + depth);
+    ctx.closePath();
+    ctx.fill();
+
+    const grad = ctx.createLinearGradient(0, p.y - h / 2, 0, p.y + h / 2);
+    grad.addColorStop(0, even ? 'rgba(46,52,96,.40)' : 'rgba(34,40,78,.34)');
+    grad.addColorStop(1, even ? 'rgba(20,24,48,.24)' : 'rgba(15,18,38,.20)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y - h / 2);
+    ctx.lineTo(p.x + w / 2, p.y);
+    ctx.lineTo(p.x, p.y + h / 2);
+    ctx.lineTo(p.x - w / 2, p.y);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(185,198,255,.08)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.strokeStyle = hexA(accent, 0.2);
+    ctx.beginPath();
+    ctx.moveTo(p.x - w / 2 + 2, p.y);
+    ctx.lineTo(p.x, p.y - h / 2 + 2);
+    ctx.lineTo(p.x + w / 2 - 2, p.y);
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(236,232,255,.2)';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawBoard() {
+    const tiles = [];
+    for (let r = 0; r < GRID; r++) {
+      for (let c = 0; c < GRID; c++) tiles.push({ c: c, r: r, sum: c + r });
+    }
+    tiles.sort((a, b) => (a.sum - b.sum) || (a.c - b.c));
+    for (let i = 0; i < tiles.length; i++) drawTile(tiles[i].c, tiles[i].r);
+  }
+
+  function drawTileOutline(c, r, color, alpha, fill) {
+    const p = toScreen(c, r);
+    const w = tileW, h = tileH;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y - h / 2 + 3);
+    ctx.lineTo(p.x + w / 2 - 3, p.y);
+    ctx.lineTo(p.x, p.y + h / 2 - 3);
+    ctx.lineTo(p.x - w / 2 + 3, p.y);
+    ctx.closePath();
+    ctx.stroke();
+    if (fill) {
+      ctx.globalAlpha = alpha * 0.18;
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawSlitWall() {
+    const accent = ARENA_COLORS[1];
+    const y = boardCY - 2;
+    const left = toScreen(0, 6).x - tileW / 2;
+    const right = toScreen(6, 0).x + tileW / 2;
+    const slit1 = toScreen(SLIT_GAPS[0].c, SLIT_GAPS[0].r).x;
+    const slit2 = toScreen(SLIT_GAPS[1].c, SLIT_GAPS[1].r).x;
+    const slitHalf = Math.max(7, tileW * 0.16);
+    const segs = [
+      [left, slit1 - slitHalf],
+      [slit1 + slitHalf, slit2 - slitHalf],
+      [slit2 + slitHalf, right]
+    ];
+
+    ctx.save();
+    for (let i = 0; i < segs.length; i++) {
+      const x0 = segs[i][0];
+      const x1 = segs[i][1];
+      if (x1 <= x0) continue;
+      ctx.fillStyle = 'rgba(0,0,0,.35)';
+      ctx.fillRect(x0, y + 4, x1 - x0, 5);
+      const g = ctx.createLinearGradient(0, y - 14, 0, y + 4);
+      g.addColorStop(0, '#3a5a66');
+      g.addColorStop(0.35, '#1d3540');
+      g.addColorStop(1, '#0a1a21');
+      ctx.fillStyle = g;
+      ctx.fillRect(x0, y - 14, x1 - x0, 18);
+      ctx.fillStyle = hexA(accent, 0.55);
+      ctx.fillRect(x0, y - 14, x1 - x0, 3);
+      ctx.fillStyle = 'rgba(0,0,0,.4)';
+      ctx.fillRect(x0, y + 2, x1 - x0, 3);
+    }
+
+    const slits = [slit1, slit2];
+    for (let i = 0; i < slits.length; i++) {
+      const x = slits[i];
+      ctx.fillStyle = 'rgba(2,8,12,.92)';
+      ctx.fillRect(x - slitHalf, y - 16, slitHalf * 2, 20);
+      ctx.fillStyle = hexA(accent, 0.18);
+      ctx.fillRect(x - slitHalf, y - 16, slitHalf * 2, 20);
+      ctx.strokeStyle = hexA(accent, 0.65);
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x - slitHalf, y - 16, slitHalf * 2, 20);
+      ctx.fillStyle = hexA(accent, 0.35);
+      ctx.fillRect(x - 1.5, y - 16, 3, 20);
+    }
+    ctx.restore();
+  }
+
+  function drawTaiDisc() {
+    const cx = 3, cr = 3;
+    const R = 2.55;
+    const phase = state.time * effectiveTaiSpin();
+    const p = [];
+    for (let i = 0; i <= 72; i++) {
+      const a = i / 72 * Math.PI * 2;
+      p.push(toScreen(cx + R * Math.cos(a), cr + R * Math.sin(a)));
+    }
+    ctx.save();
+    ctx.beginPath();
+    for (let i = 0; i < p.length; i++) {
+      if (i === 0) ctx.moveTo(p[i].x, p[i].y); else ctx.lineTo(p[i].x, p[i].y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255,209,102,.055)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,209,102,.3)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    const d1 = toScreen(cx + 0.55 * R * Math.cos(phase + Math.PI / 2), cr + 0.55 * R * Math.sin(phase + Math.PI / 2));
+    const d2 = toScreen(cx + 0.55 * R * Math.cos(phase - Math.PI / 2), cr + 0.55 * R * Math.sin(phase - Math.PI / 2));
+    ctx.fillStyle = 'rgba(8,20,26,.8)';
+    ctx.beginPath(); ctx.arc(d1.x, d1.y, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,209,102,.6)';
+    ctx.beginPath(); ctx.arc(d2.x, d2.y, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawBlackHoles() {
+    const holes = blackHoles();
+    for (let i = 0; i < holes.length; i++) {
+      const h = holes[i];
+      const p = toScreen(h.c, h.r);
+      ctx.save();
+      ctx.shadowColor = 'rgba(199,155,255,.55)';
+      ctx.shadowBlur = 24;
+      ctx.fillStyle = '#02040a';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y - 8, 26, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(199,155,255,.55)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      for (let k = 0; k < 3; k++) {
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y - 8, 30 + k * 8, 12 + k * 4, state.time * 0.5 + k, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(199,155,255,' + (0.22 - k * 0.06).toFixed(2) + ')';
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  function drawDevices() {
+    if (state.arena === 1) drawSlitWall();
+    else if (state.arena === 2) drawTaiDisc();
+    else if (state.arena === 3) drawBlackHoles();
+  }
+
+  function drawBeatPulse() {
+    // 概念封存：节拍器与棋盘中心的黄色脉冲暂停启用
+    return;
+  }
+
+  function drawWaves() {
+    if (!state.waves.length) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    for (let wi = 0; wi < state.waves.length; wi++) {
+      const w = state.waves[wi];
+      const src = toScreen(w.source.c, w.source.r);
+
+      const sg = ctx.createRadialGradient(src.x, src.y, 0, src.x, src.y, 42);
+      sg.addColorStop(0, hexA(w.color, 0.35));
+      sg.addColorStop(1, hexA(w.color, 0));
+      ctx.fillStyle = sg;
+      ctx.beginPath();
+      ctx.arc(src.x, src.y, 42, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (w.age < WAVE_WARMUP) {
+        const pulse = 0.5 + 0.5 * Math.sin(state.time * 10);
+        ctx.globalAlpha = 0.3 + 0.3 * pulse;
+        ctx.strokeStyle = w.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(src.x, src.y, 18 + 8 * pulse, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        continue;
+      }
+
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      ctx.strokeStyle = w.color;
+      ctx.lineWidth = 2.4;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.shadowColor = w.color;
+      ctx.shadowBlur = 12;
+      // 按「有效波源」分组：边缘反射会把有效源镜像到棋盘外。
+      const groups = {};
+      for (let pi = 0; pi < w.particles.length; pi++) {
+        const p = w.particles[pi];
+        if (!p.alive) continue;
+        // 组键带上出生延迟：缝口在棋盘正中，波源也可能正好落在正中，
+        // 只按源坐标分组会把「原波」和「缝口次波」并成一组、半径算错。
+        const dl = p.delay === undefined ? WAVE_WARMUP : p.delay;
+        const key = p.srcC.toFixed(2) + ',' + p.srcR.toFixed(2) + ',' + dl.toFixed(2);
+        if (!groups[key]) groups[key] = { srcC: p.srcC, srcR: p.srcR, delay: p.delay, list: [] };
+        groups[key].list.push(p);
+      }
+      const keys = Object.keys(groups);
+
+      const q0 = toScreen(EDGE_MIN, EDGE_MIN);
+      const q1 = toScreen(EDGE_MAX, EDGE_MIN);
+      const q2 = toScreen(EDGE_MAX, EDGE_MAX);
+      const q3 = toScreen(EDGE_MIN, EDGE_MAX);
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(q0.x, q0.y);
+      ctx.lineTo(q1.x, q1.y);
+      ctx.lineTo(q2.x, q2.y);
+      ctx.lineTo(q3.x, q3.y);
+      ctx.closePath();
+      if (state.arena === 1) {
+        // 墙两侧由下面每组自己的 sideClip 处理；这里只按棋盘菱形裁剪
+        ctx.clip();
+      } else {
+        ctx.clip();
+      }
+      for (let ki = 0; ki < keys.length; ki++) {
+        const g = groups[keys[ki]];
+        const angs = [];
+        for (let pi = 0; pi < g.list.length; pi++) {
+          const p = g.list[pi];
+          angs.push(Math.atan2(p.r - g.srcR, p.c - g.srcC));
+        }
+        if (!angs.length) continue;
+        // 双缝墙两侧各画各的：一组波只在墙的一侧，按侧裁剪，避免浅角度的大半径弧跨过墙
+        const R = WAVE_SPEED * Math.max(0, w.age - (g.delay === undefined ? WAVE_WARMUP : g.delay));
+        if (R < 0.02) continue;
+        const gSideUp = (g.list[0].c + g.list[0].r) < WALL_SUM;
+        // 只有一两颗粒子的组是多次反射后的碎片，画出来就是悬空的短线，直接跳过
+        if (g.list.length < 3) continue;
+        // 越走越远越淡：真实波随传播距离衰减。多次反射的后段只剩一张交叉网，压到很淡才不抢戏
+        const fade = clamp(1 - (R - 6) / 9, 0.12, 1);
+        ctx.globalAlpha = 0.85 * fade;
+        const isFan = g.list[0].fan === true;
+        let clipped = false;
+        if (state.arena === 1) {
+          const wy = boardCY - 2;
+          if (isFan) {
+            // 波束可以从缝口穿来穿去：只挖掉墙带，缝口留出来
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(0, 0, W, H);
+            const wl = toScreen(0, 6).x - tileW / 2;
+            const wr = toScreen(6, 0).x + tileW / 2;
+            const g1 = toScreen(SLIT_GAPS[0].c, SLIT_GAPS[0].r).x;
+            const g2 = toScreen(SLIT_GAPS[1].c, SLIT_GAPS[1].r).x;
+            const wh = Math.max(7, tileW * 0.16);
+            const bands = [[wl, g1 - wh], [g1 + wh, g2 - wh], [g2 + wh, wr]];
+            for (let bi = 0; bi < bands.length; bi++) {
+              if (bands[bi][1] <= bands[bi][0]) continue;
+              ctx.moveTo(bands[bi][0], wy - 22);
+              ctx.lineTo(bands[bi][1], wy - 22);
+              ctx.lineTo(bands[bi][1], wy + 10);
+              ctx.lineTo(bands[bi][0], wy + 10);
+              ctx.closePath();
+            }
+            ctx.clip('evenodd');
+            clipped = true;
+          } else {
+            const sideClip = gSideUp
+              ? [0, 0, W, Math.max(0, wy - 12)]
+              : [0, wy + 2, W, Math.max(0, H - (wy + 2))];
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(sideClip[0], sideClip[1], sideClip[2], sideClip[3]);
+            ctx.clip();
+            clipped = true;
+          }
+        }
+        angs.sort(function (a, b) { return a - b; });
+        // 只画粒子实际覆盖的角度段：波前长度跟着实际存在的那一段走。
+        // 曾经把整圈可见弧都画出来，结果反射一次就横跨半场，观感是错的。
+        const segs = [];
+        let s = 0;
+        for (let ai = 1; ai < angs.length; ai++) {
+          if (angs[ai] - angs[ai - 1] >= 0.16) { segs.push([angs[s], angs[ai - 1]]); s = ai; }
+        }
+        segs.push([angs[s], angs[angs.length - 1]]);
+        if (segs.length === 1 && Math.PI * 2 - (segs[0][1] - segs[0][0]) < 0.16) {
+          segs[0][1] = segs[0][0] + Math.PI * 2;
+        } else if (segs.length > 1 && angs[0] + Math.PI * 2 - angs[angs.length - 1] < 0.16) {
+          const last = segs.pop();
+          const first = segs.shift();
+          segs.push([last[0], first[1] + Math.PI * 2]);
+        }
+        const o = toScreen(g.srcC, g.srcR);
+        const rx = R * tileW / 2 * Math.SQRT2;
+        const ry = R * tileH / 2 * Math.SQRT2;
+        // 弧的两端沿半径方向补到「第一次出界」为止。
+        // 入射圆的终点和镜像圆的终点都落在同一处棋盘点（两圆交点就在边界上），所以两段会在边上严丝合缝地接住。
+        // 只按固定角度补是不够的：粒子是按角度采样出来的，最后一段差多少，全靠运气。
+        const distToEdge = function (a) {
+          const pc = g.srcC + R * Math.cos(a);
+          const pr = g.srcR + R * Math.sin(a);
+          let d = Math.min(pc - EDGE_MIN, EDGE_MAX - pc, pr - EDGE_MIN, EDGE_MAX - pr);
+          if (state.arena === 1 && !isFan) {
+            d = Math.min(d, gSideUp ? (WALL_SUM - 0.001) - (pc + pr) : (pc + pr) - (WALL_SUM + 0.001));
+          }
+          return d;
+        };
+        const stepAng = 0.004;
+        const maxExt = 0.14;
+        const extend = function (a, dir) {
+          // 只有端点在边界附近才补：粒子是一个角步长采样的，离边界最远可能差一个步长
+          if (distToEdge(a) > Math.max(0.08, 0.06 * R)) return a + dir * 0.006;
+          let best = a;
+          const n = Math.round(maxExt / stepAng);
+          for (let k = 1; k <= n; k++) {
+            const na = a + dir * k * stepAng;
+            if (distToEdge(na) < 0) break;
+            best = na;
+          }
+          return best + dir * 0.006;
+        };
+        for (let si = 0; si < segs.length; si++) {
+          const a0 = extend(segs[si][0], -1);
+          const a1 = extend(segs[si][1], 1);
+          ctx.beginPath();
+          ctx.ellipse(o.x, o.y, rx, ry, 0, a0 + Math.PI / 4, a1 + Math.PI / 4);
+          ctx.stroke();
+        }
+        if (clipped) ctx.restore();
+      }
+      ctx.restore();
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    const near = state.mode === 'playing' ? nearestWave() : null;
+    if (near && near.d < 3.2) {
+      const target = state.pos[state.currentPlayer];
+      const pulse = 0.35 + 0.22 * Math.sin(state.time * 8);
+      drawTileOutline(target.c, target.r, near.wave.color, pulse, true);
+    }
+  }
+
+  function drawPieces() {
+    const order = [0, 1].sort((a, b) => (state.pos[a].c + state.pos[a].r) - (state.pos[b].c + state.pos[b].r));
+    for (let i = 0; i < order.length; i++) drawPiece(order[i]);
+  }
+
+  function drawPiece(index) {
+    const pos = state.pos[index];
+    let c = pos.c, r = pos.r, lift = 0, alpha = 1;
+    const a = state.jumpAnim;
+    if (a && a.player === index) {
+      const t = Math.min(1, a.t / a.dur);
+      c = a.startC + (a.endC - a.startC) * t;
+      r = a.startR + (a.endR - a.startR) * t;
+      lift = Math.sin(Math.PI * t) * a.h;
+    }
+    const f = state.fallAnim;
+    if (f && f.player === index) {
+      c = f.c;
+      r = f.r;
+      lift = -(f.t / f.dur) * 100;
+      alpha = Math.max(0, 1 - f.t / f.dur);
+    }
+    const blink = state.hitBlink[index];
+    if (blink > 0) {
+      alpha *= Math.sin(blink * 42) > 0 ? 1 : 0.2;
+    }
+    const ground = toScreen(c, r);
+    const col = PLAYER_COLORS[index];
+    const shadowScale = Math.max(0.4, 1 - lift / 260);
+
+    ctx.save();
+    ctx.globalAlpha = 0.28 * alpha * shadowScale;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(ground.x, ground.y + 6, 23 * shadowScale, 9 * shadowScale, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // 彗尾：跃迁时从起点拖出，弯一点，末端最亮
+    if (a && a.player === index) {
+      const from = toScreen(a.startC, a.startR);
+      const tx = ground.x;
+      const ty = ground.y - lift;
+      const dx = tx - from.x;
+      const dy = ty - from.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len;
+      const ny = dx / len;
+      const bend = 22;
+      const mx = (from.x + tx) / 2;
+      const my = (from.y + ty) / 2;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const tg = ctx.createLinearGradient(from.x, from.y, tx, ty);
+      tg.addColorStop(0, hexA(col.main, 0));
+      tg.addColorStop(0.6, hexA(col.main, 0.3));
+      tg.addColorStop(1, hexA(col.main, 0.8));
+      ctx.strokeStyle = tg;
+      ctx.lineWidth = 12;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.quadraticCurveTo(mx + nx * bend, my + ny * bend, tx, ty);
+      ctx.stroke();
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = 'rgba(255,255,255,.45)';
+      ctx.beginPath();
+      ctx.moveTo(mx, my);
+      ctx.quadraticCurveTo(mx + nx * bend * 0.55, my + ny * bend * 0.55, tx, ty);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(ground.x, ground.y - lift);
+    if (blink > 0) {
+      ctx.shadowColor = '#ffffff';
+      ctx.shadowBlur = 18;
+    }
+
+    if (state.mode === 'playing' && state.currentPlayer === index && !a && !f) {
+      const pulse = 0.55 + 0.45 * Math.sin(state.time * 4);
+      ctx.save();
+      ctx.globalAlpha = 0.3 + 0.2 * pulse;
+      ctx.fillStyle = col.main;
+      ctx.beginPath();
+      ctx.ellipse(0, 4, 38, 15, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 0.42 + 0.2 * pulse;
+      ctx.strokeStyle = col.main;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.ellipse(0, 4, 38, 15, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = 0.65 + 0.35 * pulse;
+      ctx.fillStyle = col.main;
+      const bob = Math.sin(state.time * 3) * 3;
+      ctx.beginPath();
+      ctx.moveTo(0, -62 + bob);
+      ctx.lineTo(-8, -73 + bob);
+      ctx.lineTo(8, -73 + bob);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 落点椭圆：像被星球压出的时空凹陷
+    ctx.fillStyle = 'rgba(4,4,16,.85)';
+    ctx.beginPath();
+    ctx.ellipse(0, 6, 23, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = alpha * 0.45;
+    ctx.strokeStyle = col.main;
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    ctx.globalAlpha = alpha;
+
+    // 静止时轻轻浮着，跳跃时交给 lift
+    const idle = (!a && !f) ? Math.sin(state.time * 1.7 + index * 1.9) * 5 : 0;
+    const R = 17;
+    const cy = -26 - idle;
+
+    // 外发光
+    const halo = ctx.createRadialGradient(0, cy, R * 0.6, 0, cy, R * 2.2);
+    halo.addColorStop(0, hexA(col.main, 0.26));
+    halo.addColorStop(1, hexA(col.main, 0));
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(0, cy, R * 2.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 球体
+    const bg = ctx.createRadialGradient(-R * 0.4, cy - R * 0.44, R * 0.12, 0, cy, R * 1.15);
+    bg.addColorStop(0, '#ffffff');
+    bg.addColorStop(0.3, col.main);
+    bg.addColorStop(0.72, col.dim);
+    bg.addColorStop(1, '#080814');
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.arc(0, cy, R, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 陨石坑
+    ctx.fillStyle = 'rgba(0,0,0,.17)';
+    ctx.beginPath();
+    ctx.arc(-R * 0.34, cy + R * 0.3, R * 0.24, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(R * 0.36, cy - R * 0.1, R * 0.16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(-R * 0.04, cy + R * 0.6, R * 0.11, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 高光
+    ctx.fillStyle = 'rgba(255,255,255,.4)';
+    ctx.beginPath();
+    ctx.ellipse(-R * 0.36, cy - R * 0.45, R * 0.3, R * 0.17, -0.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  function drawAim() {
+    if (state.mode !== 'playing' || state.phase !== 'aim') return;
+    const p = state.currentPlayer;
+    const me = state.pos[p];
+    const opp = state.pos[1 - p];
+    const aim = getAimBoard();
+    let dc = aim.c - me.c, dr = aim.r - me.r;
+    let len = Math.hypot(dc, dr);
+    if (len < 0.15) { dc = opp.c - me.c; dr = opp.r - me.r; len = Math.hypot(dc, dr) || 1; }
+    const dirC = dc / len, dirR = dr / len;
+    const lineLen = Math.min(len, MAX_JUMP);
+    const base = toScreen(me.c, me.r);
+    const end = toScreen(me.c + dirC * lineLen, me.r + dirR * lineLen);
+
+    ctx.save();
+    ctx.setLineDash([4, 7]);
+    ctx.strokeStyle = 'rgba(255,255,255,.35)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(base.x, base.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.stroke();
+    ctx.restore();
+
+    const tc = Math.round(aim.c);
+    const tr = Math.round(aim.r);
+    if (tc >= 0 && tc < GRID && tr >= 0 && tr < GRID) {
+      const d = dist(me, { c: tc, r: tr });
+      const occupied = tc === opp.c && tr === opp.r;
+      const same = tc === me.c && tr === me.r;
+      if (d <= MAX_JUMP + 0.6 && !occupied && !same) {
+        drawTileOutline(tc, tr, 'rgba(255,255,255,.7)', 0.5, false);
+      }
+    }
+
+    if (!state.charging) return;
+
+    const j = computeJump(me, aim, state.charge, { c: opp.c, r: opp.r }, opp, state.arena, effectiveTaiSpin());
+    const land = toScreen(j.endC, j.endR);
+
+    const baseLand = toScreen(j.baseC, j.baseR);
+    if (Math.abs(j.baseC - j.endC) > 0.05 || Math.abs(j.baseR - j.endR) > 0.05) {
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      ctx.strokeStyle = 'rgba(255,255,255,.6)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(baseLand.x, baseLand.y, 5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    const col = j.suicide ? '#f6f0ff' : (j.valid ? PLAYER_COLORS[p].main : '#ff5f6d');
+    ctx.save();
+    ctx.fillStyle = col;
+    ctx.globalAlpha = 0.95;
+    ctx.beginPath();
+    ctx.moveTo(land.x, land.y - 12);
+    ctx.lineTo(land.x + 7, land.y - 5);
+    ctx.lineTo(land.x, land.y + 2);
+    ctx.lineTo(land.x - 7, land.y - 5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    if (j.valid && j.tile) drawTileOutline(j.tile.c, j.tile.r, col, 0.55, false);
+
+    const bp = toScreen(me.c, me.r);
+    ctx.save();
+    ctx.translate(bp.x, bp.y - 10);
+    ctx.strokeStyle = 'rgba(255,255,255,.12)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, 34, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = state.charge > 0.85 ? '#ff6b6b' : '#ffd166';
+    ctx.beginPath();
+    ctx.arc(0, 0, 34, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * state.charge);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function burst(x, y, n, color) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const s = 24 + Math.random() * 80;
+      particles.push({
+        x: x, y: y,
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s - 30,
+        life: 0.4 + Math.random() * 0.5,
+        max: 0.9,
+        color: color,
+        size: 1.5 + Math.random() * 2.5
+      });
+    }
+  }
+
+  function spawnFieldFlash(c, r, color) {
+    const s = toScreen(c, r);
+    burst(s.x, s.y, 4, color || '#f6f0ff');
+  }
+
+  function addFloat(index, text, color) {
+    const p = toScreen(state.pos[index].c, state.pos[index].r);
+    floats.push({ text: text, x: p.x, y: p.y - 62, color: color, life: 1.05, max: 1.05 });
+  }
+
+  function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 160 * dt;
+      p.life -= dt;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+  }
+
+  function updateFloats(dt) {
+    for (let i = floats.length - 1; i >= 0; i--) {
+      const f = floats[i];
+      f.y -= 36 * dt;
+      f.life -= dt;
+      if (f.life <= 0) floats.splice(i, 1);
+    }
+  }
+
+  function drawParticles() {
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+      const a = Math.max(0, p.life / p.max);
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function drawFloats() {
+    ctx.save();
+    ctx.textAlign = 'center';
+    for (let i = 0; i < floats.length; i++) {
+      const f = floats[i];
+      const a = Math.max(0, f.life / f.max);
+      ctx.globalAlpha = a;
+      ctx.font = '700 16px "Microsoft YaHei", "Segoe UI", sans-serif';
+      ctx.strokeStyle = 'rgba(0,0,0,.45)';
+      ctx.lineWidth = 3;
+      ctx.strokeText(f.text, f.x, f.y);
+      ctx.fillStyle = f.color;
+      ctx.fillText(f.text, f.x, f.y);
+    }
+    ctx.restore();
+  }
+
+  function drawVignette() {
+    const g = ctx.createRadialGradient(W / 2, H * 0.45, H * 0.2, W / 2, H * 0.5, H * 0.9);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(1, 'rgba(0,0,0,.45)');
+    ctx.fillStyle = g;
+    ctx.fillRect(-40, -40, W + 80, H + 80);
+  }
+
+  function render() {
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    if (state.shake > 0) {
+      ctx.translate((Math.random() - 0.5) * state.shake, (Math.random() - 0.5) * state.shake);
+    }
+    drawBackground();
+    drawBoardShadow();
+    drawBoard();
+    drawDevices();
+    drawBeatPulse();
+
+    const me = state.pos[state.currentPlayer];
+    if (state.mode === 'playing') {
+      drawTileOutline(me.c, me.r, PLAYER_COLORS[state.currentPlayer].main, 0.22, false);
+    }
+    drawWaves();
+    drawPieces();
+    drawAim();
+    drawParticles();
+    drawFloats();
+    drawVignette();
+    if (state.flash > 0) {
+      ctx.fillStyle = 'rgba(255,60,80,' + (state.flash * 0.32).toFixed(3) + ')';
+      ctx.fillRect(-40, -40, W + 80, H + 80);
+    }
+    ctx.restore();
+  }
+
+  function loop(ts) {
+    if (!lastTs) lastTs = ts;
+    const dt = Math.min(0.05, (ts - lastTs) / 1000);
+    lastTs = ts;
+    update(dt);
+    render();
+    // 波的存在时间要持续倒数：DOM 每 100 毫秒更新一次就够
+    if (ts - lastBarTs > 100) { lastBarTs = ts; updateWaveBar(); }
+    requestAnimationFrame(loop);
+  }
+
+  // ---------- 输入 ----------
+  function bindInput() {
+    window.addEventListener('pointermove', (e) => {
+      if (state.controlMode === 'duo') return;
+      if (state.controlMode === 'ai' && state.currentPlayer !== 0) return;
+      if (state.mode !== 'playing' || state.phase !== 'aim') return;
+      state.aimScreen = { x: e.clientX, y: e.clientY };
+    });
+
+    window.addEventListener('pointerdown', (e) => {
+      if (e.target && e.target.closest && e.target.closest('button')) return;
+      if (e.button !== undefined && e.button !== 0) return;
+      if (e.isPrimary === false) return;
+      if (state.controlMode === 'duo') return;
+      if (state.controlMode === 'ai' && state.currentPlayer !== 0) return;
+      if (state.mode !== 'playing' || state.phase !== 'aim' || state.charging) return;
+      beginCharge(e);
+      if (!state.charging) return;
+      try {
+        if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
+      } catch (err) {}
+    });
+
+    window.addEventListener('pointerup', (e) => {
+      if (e.button !== undefined && e.button !== 0) return;
+      if (state.controlMode === 'duo') return;
+      if (state.controlMode === 'ai' && state.currentPlayer !== 0) return;
+      if (state.charging) releaseCharge();
+    });
+
+    window.addEventListener('pointercancel', () => {
+      if (state.controlMode === 'duo') return;
+      if (state.controlMode === 'ai' && state.currentPlayer !== 0) return;
+      state.charging = false;
+      state.charge = 0;
+    });
+
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    window.addEventListener('keydown', (e) => {
+      const code = e.code;
+      if (e.repeat) return;
+      if (code === 'KeyA') { state.keys.a = true; e.preventDefault(); return; }
+      if (code === 'KeyD') { state.keys.d = true; e.preventDefault(); return; }
+      if (code === 'ArrowLeft') { state.keys.left = true; e.preventDefault(); return; }
+      if (code === 'ArrowRight') { state.keys.right = true; e.preventDefault(); return; }
+
+      if (code === 'Space') {
+        e.preventDefault();
+        if (state.mode === 'start' || state.mode === 'gameover') {
+          startGame();
+          return;
+        }
+        if (state.mode === 'playing' && state.phase === 'aim') {
+          if (state.controlMode === 'solo' || state.currentPlayer === 0) {
+            if (!state.charging) beginCharge();
+          }
+        }
+        return;
+      }
+
+      if (code === 'Enter') {
+        e.preventDefault();
+        if (state.mode === 'start' || state.mode === 'gameover') {
+          startGame();
+          return;
+        }
+        if (state.mode === 'playing' && state.phase === 'aim' && state.controlMode === 'duo' && state.currentPlayer === 1) {
+          if (!state.charging) beginCharge();
+        }
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      const code = e.code;
+      if (code === 'KeyA') { state.keys.a = false; e.preventDefault(); return; }
+      if (code === 'KeyD') { state.keys.d = false; e.preventDefault(); return; }
+      if (code === 'ArrowLeft') { state.keys.left = false; e.preventDefault(); return; }
+      if (code === 'ArrowRight') { state.keys.right = false; e.preventDefault(); return; }
+
+      if (code === 'Space') {
+        e.preventDefault();
+        if (state.charging && (state.controlMode === 'solo' || state.currentPlayer === 0)) releaseCharge();
+        return;
+      }
+      if (code === 'Enter') {
+        e.preventDefault();
+        if (state.charging && state.controlMode === 'duo' && state.currentPlayer === 1) releaseCharge();
+      }
+    });
+
+    window.addEventListener('blur', () => {
+      state.charging = false;
+      state.charge = 0;
+      state.keys = { a: false, d: false, left: false, right: false };
+    });
+  }
+
+  // ---------- 测试 ----------
+  function runUnitTests() {
+    const fails = [];
+    const check = (name, cond) => { if (!cond) fails.push(name); };
+
+    state.viewTilt = 0.5;
+    resize();
+    let roundtrip = true;
+    for (let r = 0; r < GRID; r++) {
+      for (let c = 0; c < GRID; c++) {
+        const s = toScreen(c, r);
+        const b = fromScreen(s.x, s.y);
+        if (Math.abs(b.c - c) > 1e-6 || Math.abs(b.r - r) > 1e-6) roundtrip = false;
+      }
+    }
+    check('投影往返 0.5', roundtrip);
+
+    state.viewTilt = 0.7;
+    resize();
+    let roundtrip2 = true;
+    for (let r = 0; r < GRID; r++) {
+      for (let c = 0; c < GRID; c++) {
+        const s = toScreen(c, r);
+        const b = fromScreen(s.x, s.y);
+        if (Math.abs(b.c - c) > 1e-6 || Math.abs(b.r - r) > 1e-6) roundtrip2 = false;
+      }
+    }
+    check('投影往返 0.7', roundtrip2);
+    state.viewTilt = 0.5;
+    resize();
+
+    let count = 0;
+    for (let r = 0; r < GRID; r++) {
+      for (let c = 0; c < GRID; c++) if (tileAt(c, r)) count++;
+    }
+    check('格子数', count === GRID * GRID);
+
+    check('蓄力下限', Math.abs(chargeToDist(0) - MIN_JUMP) < 1e-6);
+    check('蓄力上限', Math.abs(chargeToDist(1) - MAX_JUMP) < 1e-6);
+    check('蓄力单调', chargeToDist(0.3) < chargeToDist(0.7));
+
+    const me = { c: 0, r: 0 };
+    const opp = { c: 6, r: 6 };
+    const aim = { c: 1, r: 1 };
+    const charge = (Math.hypot(1, 1) - MIN_JUMP) / (MAX_JUMP - MIN_JUMP);
+    const j = computeJump(me, aim, charge, opp, opp, 0, state.taiSpin);
+    check('斜跳落格', j.valid && j.tile.c === 1 && j.tile.r === 1);
+
+    const miss = computeJump(me, { c: -2, r: -2 }, 1, opp, opp, 0, state.taiSpin);
+    check('出界无效', !miss.valid);
+
+    const occupied = computeJump(me, aim, charge, opp, { c: 1, r: 1 }, 0, state.taiSpin);
+    check('占位无效', !occupied.valid);
+
+    const taiDef = applyFieldDeflection(5, 5, 2, 0.28);
+    check('太极偏移', Math.abs(taiDef.c - 5) > 0.05 || Math.abs(taiDef.r - 5) > 0.05);
+    const bhDef = applyFieldDeflection(4.8, 3.1, 3, 0);
+    check('黑洞拉点', bhDef.c < 4.8);
+
+    const gap = slitCrossing(1.0, 2.0, 3.0, 6.0);
+    const blocked = slitCrossing(0.5, 5.0, 0.5, 6.0);
+    check('双缝缝口', !!gap && gap.pass === true);
+    check('双缝挡墙', !!blocked && blocked.pass === false);
+
+    const mp = { c: 0.5, r: 4.5, prevC: 0.8, prevR: 4.8, vc: 0.26, vr: 0.26, srcC: 3, srcR: 3, bounces: 0 };
+    reflectSlit(mp);
+    check('反射计入次数', mp.bounces === 1);
+    check('四次反射后伤害不足', wavePower({ bounces: 4 }) < 0.3);
+
+    const edge = { c: -0.6, r: 3, vc: -1, vr: 0, srcC: -0.6, srcR: 3 };
+    reflectEdge(edge);
+    check('边界反弹', edge.c > EDGE_MIN && edge.vc > 0);
+
+    const holeJump = computeJump(
+      { c: 1, r: 3 }, { c: 2, r: 3 },
+      (1.0 - MIN_JUMP) / (MAX_JUMP - MIN_JUMP),
+      opp, opp, 3, state.taiSpin
+    );
+    check('黑洞自杀标记', holeJump.suicide === true);
+    check('普通落点无自杀', computeJump(me, aim, charge, opp, opp, 0, state.taiSpin).suicide === false);
+
+    const api = window.RippleDuel;
+    check('调试接口', !!api && api.version === 'demo-1.0');
+    check('调试快照', !!api && typeof api.state === 'function' && api.state().mode === 'start');
+
+    state.rhythmB = true;
+    state.bpm = 90;
+    check('B 基准 1x', Math.abs(rhythmScale() - 1) < 1e-6);
+    state.bpm = 160;
+    check('B 高速 >1.5', rhythmScale() > 1.5);
+    state.bpm = 60;
+    check('B 慢速 <1', rhythmScale() < 1);
+    state.bpm = 90;
+    check('B 太极基准', Math.abs(effectiveTaiSpin() - state.taiSpin) < 1e-6);
+    state.rhythmB = false;
+    check('B 关闭 1x', Math.abs(rhythmScale() - 1) < 1e-6);
+    state.rhythmB = true;
+    state.bpm = 90;
+
+    return { pass: fails.length === 0, fails: fails };
+  }
+
+  function testJumpTo(tile, frames, doneFrames) {
+    // 测试用：跳过跃迁锁，保持原有回合时序；锁本身由双人段与压力测试单独覆盖
+    state.lockUntil = 0;
+    const p = toScreen(tile.c, tile.r);
+    canvas.dispatchEvent(new MouseEvent('pointermove', { clientX: p.x, clientY: p.y, bubbles: true }));
+    canvas.dispatchEvent(new MouseEvent('pointerdown', { clientX: p.x, clientY: p.y, bubbles: true }));
+    for (let i = 0; i < frames; i++) update(1 / 60);
+    window.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+    for (let i = 0; i < doneFrames; i++) update(1 / 60);
+  }
+
+  function runIntegrationTest() {
+    const fails = [];
+    const check = (name, cond) => { if (!cond) fails.push(name); };
+
+    resize();
+    setArena(0);
+    setControlMode('solo');
+    state.interference = false;
+    state.bounce = false;
+    state.selfDamage = false;
+    resetToStart();
+    startGame();
+
+    testJumpTo({ c: 1, r: 1 }, 17, 80);
+    check('蓝方落点', state.pos[0].c === 1 && state.pos[0].r === 1);
+    check('蓝方起跳后换红方', state.currentPlayer === 1);
+    check('蓝方落地生成波', state.waves.length === 1 && state.waves[0].owner === 0);
+    check('波纹颜色跟随棋子', state.waves[0].color === PLAYER_COLORS[0].main);
+    check('两侧命数未减', state.lives[0] === 3 && state.lives[1] === 3);
+
+    testJumpTo({ c: 5, r: 5 }, 17, 80);
+    check('红方落点', state.pos[1].c === 5 && state.pos[1].r === 5);
+    check('红方起跳后换蓝方', state.currentPlayer === 0);
+    check('红方落地生成波', state.waves.length === 1 && state.waves[0].owner === 1);
+
+    for (let i = 0; i < 400; i++) {
+      update(1 / 60);
+      if (state.lives[0] < 3) break;
+    }
+    check('蓝方站着被波纹击中', state.lives[0] === 2);
+    check('被击中后仍是蓝方回合', state.currentPlayer === 0);
+    check('被击中后波纹还在走', state.waves.length >= 1);
+    check('受击闪烁', state.hitBlink[0] > 0);
+
+    state.waves = [];
+    testJumpTo({ c: 2, r: 2 }, 17, 80);
+    check('蓝方再次起跳', state.pos[0].c === 2 && state.pos[0].r === 2);
+    check('蓝方起跳后换红方', state.currentPlayer === 1);
+    check('蓝方起跳生成波', state.waves.length === 1 && state.waves[0].owner === 0);
+
+    state.waves = [];
+    testJumpTo({ c: 8, r: 8 }, 80, 120);
+    check('红方落空扣命', state.lives[1] === 2);
+    check('红方落空后换蓝方', state.currentPlayer === 0);
+    check('红方落空位置不变', state.pos[1].c === 5 && state.pos[1].r === 5);
+    check('落空不生成波', state.waves.length === 0);
+
+    state.interference = false;
+    state.waves = [];
+    spawnWave({ c: 0, r: 0 }, 0);
+    spawnWave({ c: 6, r: 6 }, 1);
+    check('干涉关闭只留最新波', state.waves.length === 1 && state.waves[0].owner === 1);
+
+    state.interference = true;
+    state.waves = [];
+    spawnWave({ c: 0, r: 0 }, 0);
+    spawnWave({ c: 6, r: 6 }, 1);
+    check('干涉开启保留多道波', state.waves.length === 2);
+
+    state.interference = false;
+    state.bounce = true;
+    state.waves = [];
+    spawnWave({ c: 0, r: 0 }, 0);
+    state.waves[0].age = WAVE_WARMUP;
+    for (let i = 0; i < 150; i++) update(1 / 60);
+    let edgeOK = true;
+    const w = state.waves[0];
+    if (w) {
+      for (let i = 0; i < w.particles.length; i++) {
+        const p = w.particles[i];
+        if (!p.alive) continue;
+        if (p.c < EDGE_MIN - 0.05 || p.c > EDGE_MAX + 0.05 || p.r < EDGE_MIN - 0.05 || p.r > EDGE_MAX + 0.05) edgeOK = false;
+      }
+    }
+    check('反弹时粒子留在棋盘内', edgeOK);
+
+    // 关闭反射：边格波只剩向内的半圆（出界即消失）
+    state.bounce = false;
+    state.waves = [];
+    spawnWave({ c: 0, r: 3 }, 0);
+    for (let i = 0; i < 80; i++) updateWaves(1 / 60);
+    let edgeAlive = 0;
+    const ew = state.waves[0];
+    for (let i = 0; i < ew.particles.length; i++) if (ew.particles[i].alive) edgeAlive++;
+    check('关闭反射边格只剩半圆', edgeAlive > 40 && edgeAlive < WAVE_PARTICLES);
+
+    // 开启反射：向内半圆继续走，向外半圆从边界反弹回来，整圈都还在
+    state.bounce = true;
+    state.waves = [];
+    spawnWave({ c: 0, r: 3 }, 0);
+    for (let i = 0; i < 120; i++) updateWaves(1 / 60);
+    let reflectAlive = 0, reflectIn = true, bouncedCount = 0;
+    const rw = state.waves[0];
+    for (let i = 0; i < rw.particles.length; i++) {
+      const p = rw.particles[i];
+      if (!p.alive) continue;
+      reflectAlive++;
+      if (p.bounced) bouncedCount++;
+      if (p.c < EDGE_MIN - 0.05 || p.c > EDGE_MAX + 0.05 || p.r < EDGE_MIN - 0.05 || p.r > EDGE_MAX + 0.05) reflectIn = false;
+    }
+    check('开启反射波完整', reflectAlive === WAVE_PARTICLES);
+    check('反射半圆确实存在', bouncedCount > 30);
+    check('反射后都在棋盘内', reflectIn);
+
+    // 反弹粒子的有效波源必须与走过的路程一致，否则排序会连出跨盘弦线
+    let mirrorOK = true;
+    for (let i = 0; i < rw.particles.length; i++) {
+      const p = rw.particles[i];
+      if (!p.alive) continue;
+      if (Math.abs(Math.hypot(p.c - p.srcC, p.r - p.srcR) - p.traveled) > 0.12) mirrorOK = false;
+    }
+    check('反弹粒子有效波源正确', mirrorOK);
+
+    // 反射持续到接近寿命上限：粒子不应中途消失
+    for (let i = 0; i < 175; i++) updateWaves(1 / 60);
+    let longAlive = 0;
+    for (let i = 0; i < rw.particles.length; i++) if (rw.particles[i].alive) longAlive++;
+    check('反射期间粒子不湮灭', longAlive === WAVE_PARTICLES);
+
+    state.bounce = false;
+    state.waves = [];
+
+    setControlMode('duo');
+    setArena(0);
+    state.interference = false;
+    state.waves = [];
+    resetToStart();
+    startGame();
+
+    const a0 = state.aimAngle;
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyD', bubbles: true }));
+    for (let i = 0; i < 8; i++) update(1 / 60);
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyD', bubbles: true }));
+    check('双人蓝方转向', state.aimAngle !== a0);
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }));
+    for (let i = 0; i < 20; i++) update(1 / 60);
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', bubbles: true }));
+    for (let i = 0; i < 80; i++) update(1 / 60);
+    check('双人蓝方起跳', state.currentPlayer === 1);
+    check('双人蓝方移动', state.pos[0].c !== 0 || state.pos[0].r !== 0);
+
+    // 对方的波还没走完时，红方按回车不能起跳
+    check('波未走完不能跃迁', state.time < state.lockUntil);
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true }));
+    check('锁定期内回车不生效', state.charging === false);
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Enter', bubbles: true }));
+
+    // 等锁定期过去再测红方
+    for (let i = 0; i < 130; i++) update(1 / 60);
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }));
+    check('红方回合空格不生效', state.charging === false);
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', bubbles: true }));
+
+    const r0 = state.aimAngle;
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowLeft', bubbles: true }));
+    for (let i = 0; i < 8; i++) update(1 / 60);
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'ArrowLeft', bubbles: true }));
+    check('双人红方转向', state.aimAngle !== r0);
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true }));
+    for (let i = 0; i < 20; i++) update(1 / 60);
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Enter', bubbles: true }));
+    for (let i = 0; i < 80; i++) update(1 / 60);
+    check('双人红方起跳', state.currentPlayer === 0);
+    check('双人红方移动', state.pos[1].c !== 6 || state.pos[1].r !== 6);
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true }));
+    check('蓝方回合回车不生效', state.charging === false);
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Enter', bubbles: true }));
+
+    setControlMode('solo');
+    setArena(3);
+    state.waves = [];
+    resetToStart();
+    startGame();
+    state.pos = [{ c: 1, r: 3 }, { c: 6, r: 6 }];
+    state.currentPlayer = 0;
+    state.phase = 'aim';
+    setAimForCurrent();
+    testJumpTo({ c: 2, r: 3 }, 6, 120);
+    check('跳黑洞自杀', state.mode === 'gameover' && state.lives[0] === 0);
+    check('结算写明奇点', document.getElementById('finalScore').textContent.indexOf('奇点') >= 0);
+
+    setControlMode('solo');
+    resetToStart();
+    return { pass: fails.length === 0, fails: fails };
+  }
+
+  function runLongRunTest() {
+    const fails = [];
+    setArena(0);
+    setControlMode('solo');
+    state.interference = false;
+    state.bounce = false;
+    state.selfDamage = false;
+    startGame();
+    let turns = 0;
+    for (let n = 0; n < 24; n++) {
+      const p = state.currentPlayer;
+      const me = state.pos[p];
+      const opp = state.pos[1 - p];
+      let best = null;
+      let bestD = 999;
+      for (let r = 0; r < GRID; r++) {
+        for (let c = 0; c < GRID; c++) {
+          const t = { c: c, r: r };
+          const d = dist(me, t);
+          if (d < 1.0 || d > MAX_JUMP) continue;
+          if (t.c === opp.c && t.r === opp.r) continue;
+          if (t.c === me.c && t.r === me.r) continue;
+          const od = dist(t, opp);
+          if (od < bestD) { bestD = od; best = t; }
+        }
+      }
+      if (!best) { fails.push('无可用落点 turn=' + n); break; }
+      const charge = (dist(me, best) - MIN_JUMP) / (MAX_JUMP - MIN_JUMP);
+      state.aimScreen = toScreen(best.c, best.r);
+      state.charging = true;
+      state.charge = clamp(charge, 0, 1);
+      releaseCharge();
+      let steps = 0;
+      while (steps < 80 && state.currentPlayer === p && state.mode === 'playing') {
+        update(1 / 60);
+        steps++;
+      }
+      if (state.currentPlayer === p) {
+        fails.push('回合未切换 turn=' + n);
+        break;
+      }
+      turns++;
+    }
+    const info = [{ arena: 0, turns: turns, lives: state.lives.slice() }];
+    if (state.lives[0] <= 0 || state.lives[1] <= 0) fails.push('长跑意外结束');
+
+    resetToStart();
+    return { pass: fails.length === 0, fails: fails, info: info };
+  }
+
+  function runFieldSmoke() {
+    const fails = [];
+    const info = [];
+    for (let arena = 1; arena < 4; arena++) {
+      setArena(arena);
+      setControlMode('solo');
+      state.interference = false;
+      state.bounce = false;
+      state.selfDamage = false;
+      startGame();
+      let turns = 0;
+      for (let n = 0; n < 8; n++) {
+        if (state.mode !== 'playing') break;
+        const p = state.currentPlayer;
+        const me = state.pos[p];
+        const opp = state.pos[1 - p];
+        let best = null;
+        let bestD = 999;
+        for (let r = 0; r < GRID; r++) {
+          for (let c = 0; c < GRID; c++) {
+            const t = { c: c, r: r };
+            const d = dist(me, t);
+            if (d < 1.0 || d > MAX_JUMP) continue;
+            if (isBlackHole(t.c, t.r)) continue;
+            if (t.c === opp.c && t.r === opp.r) continue;
+            if (t.c === me.c && t.r === me.r) continue;
+            const od = dist(t, opp);
+            if (od < bestD) { bestD = od; best = t; }
+          }
+        }
+        if (!best) { fails.push('场地无可落点 arena=' + arena); break; }
+        const charge = (dist(me, best) - MIN_JUMP) / (MAX_JUMP - MIN_JUMP);
+        state.aimScreen = toScreen(best.c, best.r);
+        state.charging = true;
+        state.charge = clamp(charge, 0, 1);
+        releaseCharge();
+        let steps = 0;
+        while (steps < 100 && state.currentPlayer === p && state.mode === 'playing') {
+          update(1 / 60);
+          steps++;
+        }
+        if (state.mode !== 'playing') break;
+        if (state.currentPlayer === p) {
+          fails.push('场地回合卡死 arena=' + arena);
+          break;
+        }
+        turns++;
+      }
+      info.push({ arena: arena, turns: turns, lives: state.lives.slice(), mode: state.mode });
+    }
+
+    resetToStart();
+    return { pass: fails.length === 0, fails: fails, info: info };
+  }
+
+  // ---------- 固定场景（复核截图用） ----------
+  function setupScene(arena) {
+    setArena(arena);
+    setControlMode('solo');
+    state.interference = false;
+    state.bounce = false;
+    state.selfDamage = false;
+    resetMatch();
+    state.mode = 'playing';
+    document.getElementById('start').classList.add('hidden');
+    document.getElementById('hud').classList.remove('hidden');
+    document.getElementById('menuBtn').classList.remove('hidden');
+    state.pos = [{ c: 1, r: 1 }, { c: 5, r: 5 }];
+    state.currentPlayer = 1;
+    state.lives = [3, 2];
+    state.turns = 7;
+    state.phase = 'aim';
+    setAimForCurrent();
+    spawnWave({ c: 1, r: 1 }, 0);
+    const advance = arena === 0 ? 78 : 155;
+    for (let i = 0; i < advance; i++) updateWaves(1 / 60);
+    state.charging = true;
+    state.charge = 0.5;
+    state.aimScreen = toScreen(3, 3);
+    updateHud();
+    render();
+  }
+
+  function setupGameOverScene() {
+    setArena(0);
+    resetMatch();
+    startGame();
+    state.pos = [{ c: 1, r: 1 }, { c: 5, r: 5 }];
+    state.lives = [0, 3];
+    state.turns = 9;
+    endGame(1);
+    render();
+  }
+
+  function setupDuoScene() {
+    setupScene(0);
+    setControlMode('duo');
+    state.currentPlayer = 1;
+    setAimForCurrent();
+    state.aimAngle += 0.3;
+    state.charging = true;
+    state.charge = 0.5;
+    updateHud();
+    render();
+  }
+
+  function setupSuicideScene() {
+    setArena(3);
+    setControlMode('solo');
+    resetMatch();
+    startGame();
+    state.pos = [{ c: 2, r: 3 }, { c: 6, r: 6 }];
+    state.lives = [0, 3];
+    state.turns = 0;
+    endGame(1, '蓝方坠入奇点');
+    render();
+  }
+
+  // ---------- 对外调试接口（供独立复核用） ----------
+  window.RippleDuel = {
+    version: 'demo-1.0',
+    start: startGame,
+    setMode: setControlMode,
+    setArena: setArena,
+    setAIDifficulty: setAIDifficulty,
+    aiChoose: function (player, difficulty) {
+      return aiChooseMove(player === 1 ? 1 : 0, difficulty || state.aiDifficulty);
+    },
+    jumpTo: function (c, r, charge) {
+      if (state.mode !== 'playing' || state.phase !== 'aim') return false;
+      if (state.controlMode !== 'solo') return false;
+      state.aimScreen = toScreen(c, r);
+      state.charging = true;
+      state.charge = clamp(charge, 0, 1);
+      releaseCharge();
+      return true;
+    },
+    spawn: function (c, r, owner) {
+      spawnWave({ c: c, r: r }, owner === 1 ? 1 : 0);
+      return state.waves.length;
+    },
+    step: function (frames) {
+      const n = Math.max(0, Math.min(600, Math.round(frames)));
+      for (let i = 0; i < n; i++) update(1 / 60);
+      return state.waves.length;
+    },
+    state: function () {
+      const near = nearestWave();
+      return {
+        mode: state.mode,
+        controlMode: state.controlMode,
+        arena: state.arena,
+        currentPlayer: state.currentPlayer,
+        phase: state.phase,
+        lives: state.lives.slice(),
+        pos: [
+          { c: state.pos[0].c, r: state.pos[0].r },
+          { c: state.pos[1].c, r: state.pos[1].r }
+        ],
+        waves: state.waves.length,
+        nearest: near ? { d: near.d, owner: near.wave.owner } : null,
+        winner: state.winner,
+        settings: {
+          interference: state.interference,
+          bounce: state.bounce,
+          selfDamage: state.selfDamage,
+          stackedDamage: state.stackedDamage,
+          oneShotWave: state.oneShotWave,
+          viewTilt: state.viewTilt,
+          taiSpin: state.taiSpin,
+          rhythmB: state.rhythmB,
+          bpm: state.bpm,
+          metronome: state.metronome,
+          aiDifficulty: state.aiDifficulty,
+          aiThinking: state.aiThinking
+        }
+      };
+    }
+  };
+
+  // ---------- 启动 ----------
+  function init() {
+    resize();
+    setArena(0);
+    setControlMode('solo');
+    resetToStart();
+    bindInput();
+    document.getElementById('startBtn').addEventListener('click', () => {
+      startGame();
+      document.getElementById('startBtn').blur();
+    });
+    document.getElementById('againBtn').addEventListener('click', () => {
+      startGame();
+      document.getElementById('againBtn').blur();
+    });
+    document.getElementById('arenaBtn').addEventListener('click', () => {
+      resetToStart();
+      document.getElementById('arenaBtn').blur();
+    });
+    document.getElementById('menuBtn').addEventListener('click', () => {
+      resetToStart();
+      document.getElementById('menuBtn').blur();
+    });
+    document.getElementById('muteBtn').addEventListener('click', () => {
+      toggleMute();
+      document.getElementById('muteBtn').blur();
+    });
+
+    window.addEventListener('resize', () => { resize(); render(); });
+
+    const chips = document.querySelectorAll('.arena-chip');
+    for (let i = 0; i < chips.length; i++) {
+      chips[i].addEventListener('click', () => {
+        setArena(Number(chips[i].dataset.arena));
+        audioInit();
+        playSelect();
+        chips[i].blur();
+      });
+    }
+
+    const modeChips = document.querySelectorAll('.mode-chip');
+    for (let i = 0; i < modeChips.length; i++) {
+      modeChips[i].addEventListener('click', () => {
+        setControlMode(modeChips[i].dataset.mode);
+        audioInit();
+        playSelect();
+        modeChips[i].blur();
+      });
+    }
+
+    setAIDifficulty(state.aiDifficulty);
+    const diffChips = document.querySelectorAll('.diff-chip');
+    for (let i = 0; i < diffChips.length; i++) {
+      diffChips[i].addEventListener('click', () => {
+        setAIDifficulty(diffChips[i].dataset.diff);
+        audioInit();
+        playSelect();
+        diffChips[i].blur();
+      });
+    }
+
+    const optI = document.getElementById('optInterference');
+    const optB = document.getElementById('optBounce');
+    const optS = document.getElementById('optSelf');
+    if (optI) optI.addEventListener('change', () => { state.interference = optI.checked; });
+    if (optB) optB.addEventListener('change', () => { state.bounce = optB.checked; });
+    if (optS) optS.addEventListener('change', () => { state.selfDamage = optS.checked; });
+    // 双波叠加入口已封存：代码保留，界面不再提供开关，状态恒为关
+    state.stackedDamage = false;
+    const optOne = document.getElementById('optOneShot');
+    if (optOne) {
+      optOne.addEventListener('change', () => { state.oneShotWave = optOne.checked; });
+    }
+
+    const optRB = document.getElementById('optRhythmB');
+    const optMet = document.getElementById('optMetronome');
+    const bpm = document.getElementById('bpm');
+    if (optRB) optRB.addEventListener('change', () => { state.rhythmB = optRB.checked; updateHud(); });
+    if (optMet) optMet.addEventListener('change', () => { state.metronome = optMet.checked; });
+    if (bpm) {
+      bpm.addEventListener('input', () => {
+        state.bpm = Number(bpm.value);
+        const v = document.getElementById('bpmVal');
+        if (v) v.textContent = String(state.bpm);
+        updateHud();
+      });
+    }
+
+    const vt = document.getElementById('viewTilt');
+    if (vt) {
+      vt.addEventListener('input', () => {
+        state.viewTilt = parseFloat(vt.value);
+        const label = document.getElementById('viewTiltVal');
+        if (label) label.textContent = state.viewTilt.toFixed(2);
+        resize();
+        render();
+      });
+    }
+
+    const ts = document.getElementById('taiSpin');
+    if (ts) {
+      ts.addEventListener('input', () => {
+        state.taiSpin = parseFloat(ts.value);
+        const label = document.getElementById('taiSpinVal');
+        if (label) label.textContent = state.taiSpin.toFixed(2);
+        render();
+      });
+    }
+
+    requestAnimationFrame(loop);
+  }
+
+  const SELFTEST = /selftest=1/.test(location.search);
+  let unitResult = { pass: true, fails: [] };
+  if (SELFTEST) {
+    try { unitResult = runUnitTests(); }
+    catch (e) { unitResult = { pass: false, fails: ['unit throw: ' + e.message] }; }
+    window.addEventListener('error', (e) => {
+      selftestRuntime = e.message || 'unknown';
+      document.title = 'SELFTEST FAIL runtime: ' + selftestRuntime;
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      const msg = e.reason && e.reason.message ? e.reason.message : 'unknown';
+      selftestRuntime = msg;
+      document.title = 'SELFTEST FAIL promise: ' + msg;
+    });
+  }
+
+  init();
+
+  if (SELFTEST) {
+    let integ = { pass: true, fails: [] };
+    try { integ = runIntegrationTest(); }
+    catch (e) { integ = { pass: false, fails: ['integration throw: ' + e.message] }; }
+    let longRun = { pass: true, fails: [], info: [] };
+    try { longRun = runLongRunTest(); }
+    catch (e) { longRun = { pass: false, fails: ['longrun throw: ' + e.message], info: [] }; }
+    let field = { pass: true, fails: [], info: [] };
+    try { field = runFieldSmoke(); }
+    catch (e) { field = { pass: false, fails: ['field throw: ' + e.message], info: [] }; }
+    let ai = { pass: true, fails: [], info: [] };
+    try { ai = runAITests(); }
+    catch (e) { ai = { pass: false, fails: ['ai throw: ' + e.message], info: [] }; }
+    let stack = { pass: true, fails: [], info: [] };
+    try { stack = runStackedTest(); }
+    catch (e) { stack = { pass: false, fails: ['stack throw: ' + e.message], info: [] }; }
+    let slit = { pass: true, fails: [], info: [] };
+    try { slit = runSlitWaveTest(); }
+    catch (e) { slit = { pass: false, fails: ['slit throw: ' + e.message], info: [] }; }
+    const fails = unitResult.fails.concat(integ.fails, longRun.fails, field.fails, ai.fails, stack.fails, slit.fails);
+    if (selftestRuntime) fails.push('runtime: ' + selftestRuntime);
+    const pass = unitResult.pass && integ.pass && longRun.pass && field.pass && ai.pass && stack.pass && slit.pass && !selftestRuntime;
+    document.title = pass
+      ? 'SELFTEST PASS (unit+integration+longrun+fields+ai+stack+slit)'
+      : 'SELFTEST FAIL: ' + fails.join(' | ');
+    const el = document.createElement('div');
+    el.id = 'selftestReport';
+    el.style.cssText = 'position:fixed;left:14px;bottom:14px;z-index:99;max-width:90vw;padding:10px 14px;border-radius:10px;background:rgba(0,0,0,.7);color:#bfe9ff;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;';
+    el.textContent = document.title + '\n' + JSON.stringify(longRun.info) + ' | ' + JSON.stringify(field.info) + ' | ' + JSON.stringify(ai.info) + ' | ' + JSON.stringify(stack.info) + ' | ' + JSON.stringify(slit.info);
+    document.body.appendChild(el);
+  }
+
+  function runStressTest(rounds) {
+    const fails = [];
+    const info = [];
+    const check = (name, cond) => { if (!cond) fails.push(name); };
+    const rnd = (n) => Math.floor(Math.random() * n);
+    const t0 = Date.now();
+
+    // 一、随机对局：随机场地 / 开关 / 落点 / 力度
+    let finished = 0, stuck = 0, timedOut = 0, maxTurns = 0;
+    const total = Math.max(1, Math.min(40, rounds | 0));
+    for (let g = 0; g < total; g++) {
+      if (Date.now() - t0 > 45000) { timedOut = 1; break; }
+      setArena(rnd(4));
+      setControlMode('solo');
+      state.interference = Math.random() < 0.3;
+      state.bounce = Math.random() < 0.5;
+      state.selfDamage = Math.random() < 0.3;
+      state.stackedDamage = Math.random() < 0.25;
+      state.oneShotWave = Math.random() < 0.5;
+      startGame();
+      let turns = 0;
+      while (state.mode === 'playing' && turns < 200) {
+        if (Date.now() - t0 > 45000) { timedOut = 1; break; }
+        let guard = 0;
+        while (state.mode === 'playing' && state.phase !== 'aim' && guard < 240) { update(1 / 60); guard++; }
+        if (state.mode !== 'playing') break;
+        if (state.phase !== 'aim') { stuck++; break; }
+        const mover = state.currentPlayer;
+        const me = state.pos[mover];
+        let c = rnd(GRID), r = rnd(GRID), tries = 0;
+        while (c === me.c && r === me.r && tries < 40) { c = rnd(GRID); r = rnd(GRID); tries++; }
+        state.aimScreen = toScreen(c, r);
+        state.charging = true;
+        state.charge = Math.random();
+        releaseCharge();
+        let frames = 0;
+        while (state.mode === 'playing' && state.currentPlayer === mover && frames < 300) { update(1 / 60); frames++; }
+        if (frames >= 300) { stuck++; break; }
+        turns++;
+      }
+      maxTurns = Math.max(maxTurns, turns);
+      if (timedOut) break;
+      const ended = state.mode === 'gameover';
+      if (ended) finished++;
+      check('随机对局分出胜负#' + g, ended);
+      check('生命值合法#' + g, state.lives[0] >= 0 && state.lives[1] >= 0 && state.lives[0] <= MAX_LIVES && state.lives[1] <= MAX_LIVES);
+      check('波数量有界#' + g, state.waves.length <= 24);
+      check('粒子数量有界#' + g, particles.length <= 8000);
+      for (let p = 0; p < 2; p++) {
+        check('坐标有限#' + g + '-' + p, Number.isFinite(state.pos[p].c) && Number.isFinite(state.pos[p].r));
+      }
+    }
+    info.push({ case: '随机对局', total, finished, stuck, timedOut, maxTurns });
+
+    // 二、锁：玩家
+    setArena(0);
+    setControlMode('solo');
+    startGame();
+    state.lockUntil = state.time + 1.0;
+    beginCharge(null);
+    check('锁定期内玩家不能蓄力', state.charging === false);
+    state.time = state.lockUntil + 0.01;
+    beginCharge(null);
+    check('锁过期后玩家能蓄力', state.charging === true);
+    state.charging = false;
+    state.charge = 0;
+
+    // 鼠标路径同样受锁，不能绕过
+    state.time = state.lockUntil - 0.2;
+    window.dispatchEvent(new MouseEvent('pointerdown', { clientX: 200, clientY: 200, bubbles: true, button: 0 }));
+    check('锁定期内鼠标不能蓄力', state.charging === false);
+    state.time = state.lockUntil + 0.01;
+    window.dispatchEvent(new MouseEvent('pointerdown', { clientX: 200, clientY: 200, bubbles: true, button: 0 }));
+    check('锁过期后鼠标能蓄力', state.charging === true);
+    state.charging = false;
+    state.charge = 0;
+
+    // 三、锁：AI 不绕过、不卡死
+    setControlMode('ai');
+    state.currentPlayer = 1;
+    state.phase = 'aim';
+    state.mode = 'playing';
+    state.lockUntil = state.time + 1.0;
+    clearAITimer();
+    runAIMove();
+    check('锁定期内 AI 不跳', state.phase === 'aim');
+    check('锁定期内 AI 排了重试', state.aiTimer !== null);
+    clearAITimer();
+    state.time = state.lockUntil + 0.01;
+    runAIMove();
+    check('锁过期后 AI 起跳', state.phase === 'jumping' || state.phase === 'falling');
+    clearAITimer();
+
+    // 四、快速切换模式 / 场地 / 重开，不应留下定时器或非法状态
+    for (let i = 0; i < 40; i++) {
+      setControlMode(i % 3 === 0 ? 'solo' : (i % 3 === 1 ? 'duo' : 'ai'));
+      setArena(i % 4);
+      if (i % 2 === 0) startGame();
+      if (i % 5 === 0) resetToStart();
+    }
+    check('切换后无 AI 定时器', state.aiTimer === null);
+    check('切换后状态合法', state.mode === 'start' || state.mode === 'playing');
+
+    // 五、重复结算 / 静音切换不应抛错
+    startGame();
+    endGame(0);
+    endGame(1);
+    check('重复结算不崩', state.mode === 'gameover');
+    toggleMute();
+    toggleMute();
+    check('静音切换复位', muted === false);
+
+    setControlMode('solo');
+    setArena(0);
+    state.stackedDamage = false;
+    state.interference = false;
+    state.mode = 'start';
+    resetToStart();
+    return { pass: fails.length === 0, fails: fails, info: info };
+  }
+
+  const STRESS = /stress=1/.test(location.search);
+  if (STRESS && !SELFTEST) {
+    let res = { pass: true, fails: [], info: [] };
+    try { res = runStressTest(12); }
+    catch (e) { res = { pass: false, fails: ['stress throw: ' + (e && e.message ? e.message : e)], info: [] }; }
+    document.title = res.pass
+      ? 'STRESS PASS (random+lock+switch)'
+      : 'STRESS FAIL: ' + res.fails.join(' | ');
+    const el = document.createElement('div');
+    el.id = 'stressReport';
+    el.style.cssText = 'position:fixed;left:14px;bottom:14px;z-index:99;max-width:90vw;padding:10px 14px;border-radius:10px;background:rgba(0,0,0,.7);color:#bfe9ff;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;';
+    el.textContent = document.title + '\n' + JSON.stringify(res.info);
+    document.body.appendChild(el);
+  }
+
+  function runStackedTest() {
+    const fails = [];
+    const info = [];
+    const check = (name, cond) => { if (!cond) fails.push(name); };
+
+    setArena(0);
+    setControlMode('solo');
+    resetToStart();
+    startGame();
+    state.stackedDamage = true;
+    state.interference = false;
+    state.bounce = false;
+    state.selfDamage = false;
+    state.phase = 'aim';
+    state.currentPlayer = 1;
+
+    function runWaves(frames) {
+      for (let i = 0; i < frames; i++) {
+        updateWaves(1 / 60);
+        if (state.lives[0] < 3) return i;
+      }
+      return -1;
+    }
+
+    state.lives = [3, 3];
+    state.pos[0] = { c: 0, r: 0 };
+    state.pos[1] = { c: 6, r: 6 };
+
+    // 只有自己一道波：对手的波不在场上，打不中人
+    state.waves = [];
+    spawnWave({ c: 2, r: 0 }, 1);
+    const soloHit = runWaves(220);
+    check('单方一道波不扣命', state.lives[0] === 3 && state.lives[1] === 3);
+    info.push({ case: '单方一道波', lives: state.lives.slice(), hitFrame: soloHit });
+
+    // 双方各一道：两波叠在一起，红波扫过蓝方扣 1 命
+    state.lives = [3, 3];
+    state.waves = [];
+    spawnWave({ c: 4, r: 0 }, 1);
+    spawnWave({ c: 1, r: 5 }, 0);
+    const bothHit = runWaves(220);
+    check('双方各一道时能伤人', state.lives[0] === 2);
+    info.push({ case: '双方各一道', lives: state.lives.slice(), hitFrame: bothHit });
+
+    // 波的保留：自己放新波只替换自己的，对手那道不动
+    state.waves = [];
+    spawnWave({ c: 1, r: 1 }, 0);
+    spawnWave({ c: 5, r: 5 }, 1);
+    check('场上留两道波', state.waves.length === 2);
+    spawnWave({ c: 2, r: 2 }, 0);
+    let keepOwn = 0;
+    let keepOpp = 0;
+    for (let i = 0; i < state.waves.length; i++) {
+      if (state.waves[i].owner === 0) keepOwn++;
+      else keepOpp++;
+    }
+    check('新波不清对手的波', keepOwn === 1 && keepOpp === 1);
+    check('同方旧波被替换', state.waves.length === 2);
+    info.push({ case: '波保留', waves: state.waves.length, own: keepOwn, opp: keepOpp });
+
+    // 波飞出棋盘后自然消失；场上只剩自己一道时，又打不中人
+    state.lives = [3, 3];
+    state.waves = [];
+    spawnWave({ c: 2, r: 0 }, 1);
+    spawnWave({ c: 1, r: 5 }, 0);
+    for (let i = 0; i < 400; i++) updateWaves(1 / 60);
+    const afterFly = state.waves.length;
+    state.waves = [];
+    state.lives = [3, 3];
+    spawnWave({ c: 2, r: 0 }, 1);
+    const loneHit = runWaves(220);
+    check('对手波消失后单波无伤', state.lives[0] === 3);
+    info.push({ case: '波飞散', afterFly: afterFly, lives: state.lives.slice(), hitFrame: loneHit });
+
+    // 演示版新机制：这一击生效后，波形立即消散
+    state.pos[0] = { c: 3, r: 3 };
+    state.pos[1] = { c: 6, r: 6 };
+    state.lives = [3, 3];
+    state.waves = [];
+    state.stackedDamage = false;
+    state.oneShotWave = true;
+    spawnWave({ c: 2, r: 3 }, 1);
+    const spawnCount = state.waves.length;
+    for (let i = 0; i < 200; i++) updateWaves(1 / 60);
+    check('命中后波纹消散', state.lives[0] === 2 && spawnCount === 1 && state.waves.length === 0);
+    info.push({ case: '击中散波', lives: state.lives.slice(), waves: state.waves.length });
+
+    // 关掉这个开关时，波命中后继续存在（老行为）
+    state.lives = [3, 3];
+    state.waves = [];
+    state.oneShotWave = false;
+    spawnWave({ c: 2, r: 3 }, 1);
+    for (let i = 0; i < 200; i++) updateWaves(1 / 60);
+    check('关闭后波不会消散', state.lives[0] === 2 && state.waves.length >= 1);
+    info.push({ case: '关闭散波', lives: state.lives.slice(), waves: state.waves.length });
+    state.oneShotWave = true;
+
+    // 引力弹弓：脚下有波粒子时能感知到
+    state.waves = [{ owner: 1, particles: [{ c: 3, r: 3, alive: true }], hit: {}, age: 1, color: '#ffffff' }];
+    check('弹弓：脚下有波', waveBoostAt(3, 3) === true);
+    check('弹弓：远处没波', waveBoostAt(0, 0) === false);
+    state.waves = [];
+
+    info.push({ case: '引力弹弓', boostAtFoot: true });
+
+    state.stackedDamage = false;
+    state.interference = false;
+    state.mode = 'start';
+    resetToStart();
+    return { pass: fails.length === 0, fails: fails, info: info };
+  }
+
+  // 双缝透射：红（向上）/蓝（向下）两个方向都必须过缝，每个缝口只产生一道有限角波束。
+  // 对应实际返修：红波被错判为「再次穿墙」而吸收；过缝波太宽、波形过多。
+  function runSlitWaveTest() {
+    const fails = [];
+    const info = [];
+    const check = (name, cond) => { if (!cond) fails.push(name); };
+    const spread = Math.PI / 10;
+
+    function probe(name, owner, sc, sr) {
+      const up = (sc + sr) > WALL_SUM;
+      // 墙的法线固定；每个缝口的过缝方向 = 波源指向该缝口，最多偏离法线 45°
+      const normal = up ? Math.PI * 5 / 4 : Math.PI / 4;
+      setArena(1);
+      state.mode = 'playing';
+      state.phase = 'aim';
+      state.currentPlayer = 0;
+      state.interference = false;
+      state.stackedDamage = false;
+      state.bounce = false;
+      state.selfDamage = false;
+      state.lives = [9, 9];
+      state.pos = [{ c: -3, r: -3 }, { c: -3, r: -3 }];
+      state.waves = [];
+      spawnWave({ c: sc, r: sr }, owner);
+      for (let i = 0; i < 200; i++) updateWaves(1 / 60);
+      const w = state.waves[0];
+      if (!w) { fails.push(name + ' 波已消失'); return; }
+      const groups = {};
+      for (let i = 0; i < w.particles.length; i++) {
+        const p = w.particles[i];
+        if (!p.alive) continue;
+        const key = p.srcC.toFixed(2) + ',' + p.srcR.toFixed(2);
+        if (!groups[key]) groups[key] = { c: p.srcC, r: p.srcR, list: [] };
+        groups[key].list.push(p);
+      }
+      const keys = Object.keys(groups);
+      for (let gi = 0; gi < SLIT_GAPS.length; gi++) {
+        const gap = SLIT_GAPS[gi];
+        const g = groups[gap.c.toFixed(2) + ',' + gap.r.toFixed(2)];
+        let diff = Math.atan2(gap.r - sr, gap.c - sc) - normal;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        const base = normal + clamp(diff, -Math.PI / 4, Math.PI / 4);
+        let n = 0;
+        let off = 0;
+        let sideW = 0;
+        let stillSlit = 0;
+        if (g) {
+          for (let i = 0; i < g.list.length; i++) {
+            const p = g.list[i];
+            n++;
+            if (p.slit) stillSlit++;
+            let d = Math.atan2(p.r - gap.r, p.c - gap.c) - base;
+            while (d > Math.PI) d -= Math.PI * 2;
+            while (d < -Math.PI) d += Math.PI * 2;
+            if (Math.abs(d) > spread + 0.02) off++;
+            const sum = p.c + p.r;
+            if (up ? !(sum < WALL_SUM) : !(sum > WALL_SUM)) sideW++;
+          }
+        }
+        const tag = name + ' 缝' + (gi + 1);
+        check(tag + '有透射', n >= 8);
+        check(tag + '只发一次', n <= 40);
+        check(tag + '全在另一侧', sideW === 0);
+        check(tag + '波束角度受限', off === 0);
+        check(tag + '已恢复墙体判定', stillSlit === 0);
+      }
+      // 原波 + 两个缝口 = 三段波前；多出来就是「波形过多」
+      check(name + '只有三段波前', keys.length === 3);
+      info.push({
+        case: name,
+        groups: keys.length,
+        slit1: groups['2.00,4.00'] ? groups['2.00,4.00'].list.length : 0,
+        slit2: groups['4.00,2.00'] ? groups['4.00,2.00'].list.length : 0
+      });
+    }
+
+    probe('红波向上', 1, 6, 3);
+    probe('蓝波向下', 0, 1, 3);
+
+    // 第二段碰撞：透射粒子折回墙面时必须重新受墙体约束。
+    // 曾经它带着「透射免疫」标记一直飞到墙前，第二次穿墙而过。
+    setArena(1);
+    state.mode = 'playing';
+    state.phase = 'aim';
+    state.currentPlayer = 0;
+    state.interference = false;
+    state.stackedDamage = false;
+    state.bounce = false;
+    state.selfDamage = false;
+    state.lives = [9, 9];
+    state.pos = [{ c: -3, r: -3 }, { c: -3, r: -3 }];
+    state.waves = [];
+    spawnWave({ c: 0.5, r: 4.5 }, 1);
+    const w2 = state.waves[0];
+    w2.particles.length = 0;
+    w2.particles.push({
+      c: 0.5, r: 4.5, prevC: 0.5, prevR: 4.5,
+      srcC: 3, srcR: 3, vc: 0.26, vr: 0.26,
+      traveled: 0.3, delay: 0, bounced: false, slit: true, alive: true
+    });
+    for (let i = 0; i < 160; i++) updateWaves(1 / 60);
+    const p2 = w2.particles[0];
+    check('折回墙面的透射粒子被挡住', !p2.alive);
+    info.push({ case: '二次撞墙', alive: p2.alive, sum: (p2.c + p2.r).toFixed(2) });
+
+    // 过缝波可以从缝口再穿回去（而不是一到缝口就消失）
+    setArena(1);
+    state.mode = 'playing';
+    state.phase = 'aim';
+    state.currentPlayer = 0;
+    state.interference = false;
+    state.stackedDamage = false;
+    state.bounce = false;
+    state.selfDamage = false;
+    state.lives = [9, 9];
+    state.pos = [{ c: -3, r: -3 }, { c: -3, r: -3 }];
+    state.waves = [];
+    spawnWave({ c: 1.0, r: 2.0 }, 1);
+    const w3 = state.waves[0];
+    w3.slitDone = [true, true];
+    w3.particles.length = 0;
+    w3.particles.push({
+      c: 1.7, r: 3.7, prevC: 1.7, prevR: 3.7,
+      srcC: 2, srcR: 4, vc: 0.4, vr: 0.4,
+      traveled: 1, delay: 0, bounced: false, bounces: 0, slit: false, fan: true, alive: true
+    });
+    for (let i = 0; i < 120; i++) updateWaves(1 / 60);
+    const p3 = w3.particles[0];
+    check('过缝波能二次穿缝', p3.alive && (p3.c + p3.r) > WALL_SUM);
+    info.push({ case: '二次穿缝', alive: p3.alive, sum: (p3.c + p3.r).toFixed(2) });
+
+    resetToStart();
+    return { pass: fails.length === 0, fails: fails, info: info };
+  }
+
+  const sceneMatch = location.search.match(/scene=(\d)/);
+  if (/scene=duo/.test(location.search)) {
+    setupDuoScene();
+  } else if (/scene=suicide/.test(location.search)) {
+    setupSuicideScene();
+  } else if (sceneMatch) {
+    const a = parseInt(sceneMatch[1], 10);
+    setupScene(clamp(a, 0, 3));
+  } else if (/scene=over/.test(location.search)) {
+    setupGameOverScene();
+  }
+})();
+</script>
+</body>
+</html>
